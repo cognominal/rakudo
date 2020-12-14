@@ -1,0 +1,107 @@
+#! /usr/bin/perl
+# Copyright (C) 2020 The Perl Foundation
+use strict;
+
+my @exes = qw( moar nqp nqp-m perl6 perl6-debug perl6-debug-m perl6-m
+             raku raku-debug rakudo rakudo-debug rakudo-debug-m rakudo-m );
+
+# my $x86_64_bin_dir     = "tmp_x86_64__bins";
+# my $arm64_bin_dir  =  "tmp_arm64_bins";
+
+
+my $args = join ' ', @ARGV;
+# print "$prefix";
+
+# repeated options don't seem to be a problem, so don't check if
+# already there
+my @added_options   = qw( --make-install --git-depth=1 );
+my @removed_options = qw( --relocatable  --prefix=     );
+
+
+
+print "=== Building for lipo\n";
+build_clean_slate();
+# make and install in ./install
+print "=== arm64 build\n";
+system_or_die($^X, 'Configure.pl', @ARGV, @added_options);
+copy_exes('arm64'); # save aways the exes
+build_clean_slate();
+print "x86_64 build\n";
+system_or_die(qw( arch --arch x86_64 ), $^X, 'Configure.pl', @ARGV, @added_options);
+copy_exes('x86_64');
+
+
+for (@exes) {
+    unlink "install/bin/$_";
+    print("lipo -create -output $_ arm64/$_ x86_64/$_\n");
+    system_or_die("lipo -create -output install/bin/$_ arm64/$_ x86_64/$_");
+}
+system_or_die("rm -rf arm64");
+system_or_die("rm -rf x86_64");
+
+system_or_die("make test");
+system_or_die("arch -arch x86_64 make test");
+
+
+
+# the install/bin dir contains scripts that are left untouched
+sub copy_exes { 
+    my ($arch) = @_;
+    print "=== saving $arch exes into $arch/ to be used later by lipo\n";
+    mkdir $arch;
+    system_or_die("cp install/bin/$_ $arch" ) for @exes; 
+}
+
+
+sub build_clean_slate {
+   system_or_die("rm -rf install");
+   system_or_die("make realclean")                  if -e 'Makefile';
+   system_or_die("cd nqp; make realclean")          if -e 'nqp/Makefile';
+   system_or_die("cd nqp/MoarVM; make realclean")   if -e 'nqp/MoarVM/Makefile';
+}
+
+=pod
+sub get_options_or_default {
+     my $option_name = shift;
+     my $default     = shift;
+#    my ($option_name, $default) = @_;
+    my $option_value =     $args = m/--${option_name}\h*=\h*(\S+)/ ? $1 : $default;
+    "--${options}=$option_value";
+}
+=cut
+
+sub system_or_die { 
+  print "=== " .  (join ' ', @_) . "\n";
+  my $result = system(@_);
+  if ($result != 0)  { die  "Failed executing @_[0]"; }
+  return $result;
+}
+
+=pod
+
+This script, tools/build/lipo_build, is used to build rakudo with universal
+binaries. It must be run on a M1 architecture.
+
+It is called by Configure.pl when called with the --lipo option.
+It calls back Configure.pl twice to build rakudo, once using arm64
+architecture, one using i386 architecture.
+Before building on either architecture, it makes sure it runs from a clean
+statue using make realclean on rakudo, nqp and MooarVM repos copies.
+
+
+Disclaimer :
+
+lipo script is unoptimal because the bytcode which is architecture agnotic is
+build twice.
+
+lipo_build script has been written as a wart to support bulding and installing
+rakudo on Apple architecture with fat binaries and with MoarVM 
+as the unique backend. It is intended to facilitate the creation
+of a rakudo star distribution as a dmg file with fat binaries.
+
+As a wart, it is minimally disruptive and necessitates little
+knowledge of the configuration system or Perl 5 libraries. 
+It does not blend and 
+adds a odd brutalist touch to the baroque rakudo configuration system.
+
+=cut

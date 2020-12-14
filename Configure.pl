@@ -10,6 +10,7 @@ use File::Spec;
 use Cwd;
 use FindBin;
 
+my @svARGV = @ARGV; # save @ARGV to use it for --lipo option
 
 BEGIN {
     # Download / Update submodules
@@ -64,7 +65,8 @@ MAIN: {
         'roast-repo=s',   'expand=s',
         'out=s',          'set-var=s@',
         'silent-build!',  'raku-alias!',
-        'force-rebuild!', 'git-reference=s'
+        'force-rebuild!', 'git-reference=s',
+        'lipo'
       )
       or do {
         print_help();
@@ -82,6 +84,13 @@ MAIN: {
             "Errors are being ignored.\n",
             "In the case of any errors the script may behave unexpectedly."
         );
+    }
+
+    if ($cfg->opt('lipo')) {
+        @svARGV = grep { $_ ne '--lipo'} @svARGV;
+
+        system($^X, 'tools/build/lipo-build', @svARGV);
+        exit 0;
     }
 
     $cfg->configure_paths;
@@ -199,6 +208,7 @@ General Options:
                        Sets a config_variable to "value". Can be used multiple
                        times.
    --no-silent-build   Don't echo commands in Makefile target receipt.
+   --lipo               Build a fat binaries
 
 Please note that the --gen-moar and --gen-nqp options are there for convenience
 only and will actually immediately - at Configure time - compile and install
