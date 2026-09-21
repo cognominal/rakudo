@@ -7,6 +7,10 @@ for Claude's (and future contributors') use. It is not user documentation.
 
 Status: **design draft, nothing implemented yet**. Branch `new-sigils`.
 
+Target: **Rakudo's RakuAST frontend (`src/Raku/*`) only.** The legacy
+QAST-generating frontend (`src/Perl6/*` — a naming holdover from before the
+Perl6→Raku rename) is explicitly **not** a target for this feature; see §4.4.
+
 ### 1. Request
 
 Add two new sigils:
@@ -38,18 +42,18 @@ chosen there constrains what `.~expr` can mean later.
 
 ### 2. Grounding: how sigils work today
 
-Two parser frontends both define the grammar and both would need the change:
+Two parser frontends define the grammar, but only one is this feature's target:
 
 - `src/Raku/Grammar.nqp` / `src/Raku/Actions.nqp` / `src/Raku/ast/*.rakumod` —
-  the RakuAST frontend, where active development (RakuAST lowering, etc.) is
-  happening per recent commit history.
+  **the RakuAST frontend — this is Rakudo, and it's the target.** Active
+  development (RakuAST lowering, etc.) is happening here per recent commit
+  history.
 - `src/Perl6/Grammar.nqp` / `src/Perl6/Actions.nqp` — legacy QAST-generating
-  frontend, near-duplicate of the above. `token comment` and `token sigil`
-  exist in both files.
+  frontend, near-duplicate of the above, named for the pre-rename "Perl6"
+  compiler. `token comment` and `token sigil` exist in both files, but
+  **this feature does not target it** (see §4.4).
 
-Before writing code, confirm which frontend is the build default in this
-checkout and whether legacy still needs parity or can be skipped (see §4.4).
-The rest of this doc cites `src/Raku/*` line numbers.
+The rest of this doc cites `src/Raku/*` line numbers exclusively.
 
 Key spots:
 
@@ -232,15 +236,15 @@ prototype — testing "does `~` sigil parsing work" against the live grammar
 without a gate will make every other `.rakutest`/roast file that has an
 unspaced `#comment` a false failure and hide real regressions.
 
-#### 4.4 Two frontends — medium
+#### 4.4 Two frontends — resolved: target Rakudo/RakuAST, not legacy Perl6
 
 `src/Perl6/Grammar.nqp` is a near-duplicate of `src/Raku/Grammar.nqp`
-(both define `token comment`, `token sigil`, independently). Decide up front:
-implement in both (double the grammar work, keeps legacy compiling), or
-RakuAST (`src/Raku/*`) only, with legacy explicitly left unsupported for this
-feature (cheaper, plausible if legacy is genuinely being phased out — verify
-that assumption for this checkout rather than assuming it from general
-Rakudo history).
+(both define `token comment`, `token sigil`, independently). **Decision:**
+target is Rakudo — the `src/Raku/*` RakuAST frontend — only. `src/Perl6/*`
+(the legacy QAST frontend, carrying the pre-rename "Perl6" name) is left
+unsupported for this feature; do not add `~`/`#` to its `token sigil` or
+touch its `token comment`. If legacy ever needs parity, that's a separate,
+explicitly-scoped follow-up, not part of this branch.
 
 ### 5. Implementation plan
 
@@ -285,11 +289,7 @@ place that enumerates the sigil character set literally (grep for
 `'$@%&'`-style string constants beyond the ones found in §2 — there may be
 more, e.g. in `Metamodel`, MOP introspection, or `core.c` setting sources).
 
-**Phase 4 — legacy frontend parity decision**
-Resolve §4.4 explicitly (implement in `src/Perl6/*` too, or document as
-RakuAST-only) rather than discovering it late.
-
-**Phase 5 — docs, NEWS entry, roast-style tests, rollout**
+**Phase 4 — docs, NEWS entry, roast-style tests, rollout**
 Update language docs, add a NEWS/changelog entry describing the language
 revision gate, and add tests in the style this repo's test suite already
 uses (`t/`, `roast` submodule if applicable) covering both success and error
