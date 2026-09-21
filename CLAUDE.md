@@ -3,7 +3,7 @@
 This file carries design notes for in-progress language changes on this branch,
 for Claude's (and future contributors') use. It is not user documentation.
 
-## Feature: new fixed-type sigils `~` (Str) and `#` (Int)
+## Feature: new fixed-type sigils `~` (Str) and `#` (int)
 
 Status: **design draft, nothing implemented yet**. Branch `new-sigils`.
 
@@ -11,14 +11,19 @@ Status: **design draft, nothing implemented yet**. Branch `new-sigils`.
 
 Add two new sigils:
 
-- `~name` — always a `Str`-typed scalar variable.
-- `#name` — always an `Int`-typed scalar variable.
+- `~name` — always a `Str`-typed (boxed) scalar variable.
+- `#name` — always a native-`int`-typed scalar variable (not boxed `Int`).
+
+Note the deliberate asymmetry: `~` implies the boxed class `Str`, `#` implies
+the *native* type `int`, not the boxed class `Int`. This mirrors the user's
+own wording ("String" vs. "int") and has real implementation consequences —
+see §3 and §5, Phase 1.
 
 Because the sigil *is* the type, an explicit type in the declaration is
 redundant at best and contradictory at worst, so it's a compile-time error to
-write one (`my Str ~name` and `my Int ~name` are both illegal, not just the
-first). A `where` constraint is still allowed, since it doesn't change the
-nominal type.
+write one (`my Str ~name`, `my int #name`, and `my Int #name` are all
+illegal, not just the redundant-match cases). A `where` constraint is still
+allowed, since it doesn't change the nominal type.
 
 Consequence: since `#name` (no space) becomes a term, plain end-of-line
 comments must require a space after `#` (`# like this`) so `#name` isn't
@@ -86,12 +91,35 @@ Key spots:
   - `IMPL-CALCULATE-TYPES` (line 196-316) is the real per-sigil branch: `@`
     (208), `%` (229), `&` (256), else (265, today only `$`) sets
     `container-base-type`/`container-type`/`bind-constraint`/`default`. This
-    is where `~`/`#` branches get added (default `Str`/`Int`, base type
-    `Scalar`, bind-constraint `Str`/`Int`).
+    is where the `~` branch gets added (default `Str`, base type `Scalar`,
+    bind-constraint `Str`) — same shape as `$`, just with a forced default.
+  - `#` is different: it isn't "another boxed-Scalar branch," it's "`$`
+    with `$of` forced to the native `int` type object." The relevant code
+    already exists for this, in `IMPL-CONTAINER` (line 336-361):
+    ```
+    if $sigil ne '@' && $sigil ne '%' {
+        if nqp::objprimspec($of) {
+            nqp::die("Natively typed state variables not yet implemented") if self.scope eq 'state';
+            return nqp::null unless $attribute;
+        }
+        $container-type := Scalar;
+    }
+    ```
+    i.e. when `$of` has a primitive spec (native `int`/`num`/`str`), no
+    `Scalar` container object is created at all — the variable lives as a
+    raw native local, exactly like today's explicit `my int $x`. Making
+    `#name` mean native int is a matter of feeding `int` in as `$of` for
+    `#`-sigiled declarations, not writing new container logic — but it also
+    means `#name` **inherits existing native-scalar limitations**, notably
+    the `state` NYI death above (`state #x` won't work until that's fixed,
+    independent of this feature), no `Mu`/undefined state (natives default
+    to `0`, can't hold `Nil`), and attribute (`has #x`) vs. non-attribute
+    behavior already forking at `return nqp::null unless $attribute` above.
   - The explicit-type/`is Type` path (line 271-292,
     `IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE`) is exactly the mechanism to
-    **reject** for `~`/`#`: if a sigil is `~` or `#`, any explicit type or
-    `is Type` must be a compile error, not silently accepted.
+    **reject** for `~`/`#`: if a sigil is `~` or `#`, any explicit type
+    (`Str`, `int`, `Int`, ...) or `is Type` must be a compile error, not
+    silently accepted.
 - Actions-level plumbing (`compile-variable-access`, `sigil-to-context`,
   `contextualizer-for-sigil` in `src/Raku/Actions.nqp:3040-3231`) is already
   generic over sigil string and needs no new branches — `~`/`#` fall into the
@@ -103,19 +131,20 @@ Key spots:
 ### 3. Proposed semantics
 
 - `~name` declares/refers to a `Str`-bound scalar (`Scalar` container,
-  bind-constraint `Str`, default value per current `Str` default rules).
-- `#name` declares/refers to an `Int`-bound scalar (same shape, `Int`).
-- Boxed classes (`Str`, `Int`), not native `str`/`int` — this matches how
-  `@`/`%`/`&` map to boxed roles (`Positional`/`Associative`/`Callable`), not
-  to native arrays. Native storage (today spelled `my str $x` / `my int $x`)
-  is a distinct, orthogonal feature and out of scope; don't conflate "sigil
-  implies Int" with "sigil implies native int".
-- `my Str ~x`, `my Int #x`, `my ~x is Str`, `my Foo ~x`, etc. are all
-  compile-time errors ("sigil `~` already implies type `Str`; remove the
-  explicit type"). One new typed exception, e.g.
+  bind-constraint `Str`, default value per current `Str` default rules) —
+  the same boxed shape `@`/`%`/`&` already use for their implied roles.
+- `#name` declares/refers to a native-`int` scalar — no `Scalar` container
+  object (see §2), value defaults to `0`, cannot be `Nil`/undefined, and
+  currently cannot be `state`-scoped (inherits the existing native-scalar
+  `state` NYI). This is the same semantics as today's `my int $x`, just
+  spelled with the sigil instead of an explicit type.
+- `my Str ~x`, `my int #x`, `my Int #x`, `my ~x is Str`, `my Foo ~x`, etc.
+  are all compile-time errors ("sigil `~`/`#` already implies a type; remove
+  the explicit type"). One new typed exception, e.g.
   `X::Syntax::Variable::SigilImpliesType`, covers both the redundant-match
-  and the conflicting-mismatch cases — the user's spec treats them the same
-  ("can't be typed"), so don't special-case "but you named the same type".
+  case (`my int #x`) and the conflicting-mismatch case (`my Int #x`,
+  `my Str #x`) — the user's spec treats them the same ("can't be typed"), so
+  don't special-case "but you named the same type".
 - `~name where *.chars > 0` remains legal — `where` adds a runtime
   refinement, it isn't a type in the sigil sense.
 - Applies to `my`/`our`/`state`/`has`/`HAS` scopes and to signature
@@ -226,11 +255,14 @@ space") is needed and how much it breaks. **Report back before Phase 2.**
 **Phase 1 — `#` sigil + comment-spacing rule (independent of `~`, lower risk)**
 - Add `#` to `token sigil` (`Grammar.nqp:5455`), gated by language revision.
 - Tighten `comment:sym<#>` per §4.2, gated the same way.
-- Wire `#` through `IMPL-CALCULATE-TYPES` (new branch, default `Int`,
-  base type `Scalar`, bind-constraint `Int`) and `IMPL-SIGIL-LOOKUP` if it
-  needs an entry.
-- Reject explicit types/`is Type` on `#`-sigiled declarations
-  (new `X::Syntax::Variable::SigilImpliesType`).
+- Wire `#` to force `$of` to the native `int` type object, riding the
+  existing primspec path in `IMPL-CONTAINER` (§2) rather than adding a new
+  boxed-type branch; confirm `IMPL-CALCULATE-TYPES`'s default `$` branch
+  (line 265-269) needs no change beyond that, and decide how `state #x`
+  should fail (reuse the existing NYI message, or a clearer one naming the
+  sigil).
+- Reject explicit types/`is Type` (`int`, `Int`, or anything else) on
+  `#`-sigiled declarations (new `X::Syntax::Variable::SigilImpliesType`).
 - Add `i1`/`i0` interpolation roles, compose into `qq` (`Grammar.nqp:6388`).
 - Parameters: wire `signature.rakumod` the same way.
 - Tests: parser tests for declaration/use/error cases, interpolation, params.
@@ -259,7 +291,10 @@ paths.
 
 ### 6. Explicitly out of scope for MVP
 
-- Native `str`/`int` storage for `~`/`#` (a real but separate feature).
+- Native `str` storage for `~` (it's specified as boxed `Str`; only `#` is
+  native, per §3's deliberate asymmetry).
+- Boxed `Int` as an alternative reading of `#` — the spec is native `int`;
+  don't hedge by making it configurable.
 - Sigils for other types (e.g. a hypothetical `Num` or `Bool` sigil) — not
   requested, don't generalize preemptively.
 - Changing the `~` twigil's behavior.
