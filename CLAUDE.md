@@ -30,6 +30,12 @@ comments must require a space after `#` (`# like this`) so `#name` isn't
 swallowed as a comment. `#|...`, `#=...`, `` #`(...)` `` stay comment forms
 regardless (see §4.2).
 
+This work is also a **prerequisite for a follow-on feature**: `.` as a
+generalized subscript operator (see §7). Keep that dependency in mind when
+choosing implementation details here — in particular, §4.1's `~`-vs-operator
+ambiguity and the postfix-dot grammar interact (§7), so the resolution
+chosen there constrains what `.~expr` can mean later.
+
 ### 2. Grounding: how sigils work today
 
 Two parser frontends both define the grammar and both would need the change:
@@ -42,7 +48,7 @@ Two parser frontends both define the grammar and both would need the change:
   exist in both files.
 
 Before writing code, confirm which frontend is the build default in this
-checkout and whether legacy still needs parity or can be skipped (see §4.5).
+checkout and whether legacy still needs parity or can be skipped (see §4.4).
 The rest of this doc cites `src/Raku/*` line numbers.
 
 Key spots:
@@ -298,3 +304,66 @@ paths.
 - Sigils for other types (e.g. a hypothetical `Num` or `Bool` sigil) — not
   requested, don't generalize preemptively.
 - Changing the `~` twigil's behavior.
+- The `.` subscript operator itself (§7) — not part of this branch's scope,
+  documented here only because it motivates some of the choices above.
+
+### 7. Follow-on motivation: `.` as a generalized subscript operator
+
+Not part of this feature, but the stated reason it's being done first — record
+it so the design choices above (especially §4.1's `~` resolution) are made
+with this in mind, not discovered to conflict with it later.
+
+**Proposed equivalence:**
+```
+@a.1.toto.~str.#int  ≡  @a[1]<toto>{~str}[#int]
+```
+i.e. after a `.`, the kind of subscript is inferred from what follows it:
+
+| after `.`         | desugars to  | subscript kind                          |
+|--------------------|--------------|------------------------------------------|
+| bare integer (`1`)  | `[1]`        | positional, literal index                |
+| bare identifier (`toto`) | `<toto>` | associative, literal (quoted-word) key |
+| `~expr` (Str sigil)  | `{~expr}`   | associative, key from a `~`-sigiled value |
+| `#expr` (int sigil)  | `[#expr]`   | positional, index from a `#`-sigiled value |
+
+**Why the `~`/`#` work here is the prerequisite, specifically:** Raku already
+lets a variable drive a subscript today, but only with explicit brackets —
+`.{$key}` for associative, `.[$idx]` for positional — because a bare
+`$`-sigiled variable carries no static information about which kind of
+subscript it should mean. `~foo` and `#foo` are the first variable forms
+whose *sigil alone* guarantees the value's type (Str vs. int), which is what
+would let `.~foo` and `.#foo` desugar unambiguously to `{}` vs `[]` *without*
+brackets and without a runtime type check at parse time. Generic `$foo` can't
+play this role — `.{$foo}`/`.[$foo]` would still need explicit brackets, or
+some other new marker. So this branch isn't just "add two sigils," it's
+"add the two sigils whose fixed types make bracket-less variable-driven
+subscripting resolvable at parse time" — worth keeping in the front matter
+of the actual PR/commit description when this lands, not just here.
+
+**What §7 does *not* get for free from this branch, and will need its own
+design work:**
+
+- `.toto` (bare identifier after `.`) is, today, unconditionally a *method
+  call* — `token methodop`'s `<longname>` branch,
+  `src/Raku/Grammar.nqp:2650-2652`. Reinterpreting it as `<toto>` (a hash-key
+  literal) as well is a real clash with every existing method call, not a
+  parse ambiguity that LTM or a sigil can resolve, because both readings use
+  the exact same token shape (`.` + identifier). This most likely has to be
+  a *runtime* fallback (e.g. `Associative`-consuming types growing a
+  `FALLBACK` that turns "no such method `toto`" into `self{'toto'}`), not a
+  grammar change — flag this explicitly to whoever designs §7, since it's
+  the one piece of the equivalence example that doesn't reduce to a parsing
+  problem at all.
+- `.1` (bare integer after `.`) doesn't collide with anything today — plain
+  `.` followed by a digit isn't valid `dottyop` syntax currently (`methodop`
+  has no numeric-literal branch, `src/Raku/Grammar.nqp:2650-2661`), so this
+  is a comparatively low-risk grammar addition, independent of the sigil
+  work, whenever §7 is tackled.
+- `.~expr`/`.#expr` land in `token methodop` right next to the *existing*
+  `<?[$@&]> <variable>` branch (`src/Raku/Grammar.nqp:2656`), which today
+  means "call the method whose name/object is held in this `$`/`@`/`&`
+  variable" (indirect method call) — a different meaning from "subscript by
+  this value." Extending that lookahead to `<?[$@&~#]>` isn't enough by
+  itself; `~`/`#` need a genuinely different branch in `dottyop`/`methodop`
+  that means *subscript*, not *dispatch*, so §7's design has to introduce
+  that branch deliberately rather than widen the existing character class.
