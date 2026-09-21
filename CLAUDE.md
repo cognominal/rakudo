@@ -11,6 +11,27 @@ Target: **Rakudo's RakuAST frontend (`src/Raku/*`) only.** The legacy
 QAST-generating frontend (`src/Perl6/*` — a naming holdover from before the
 Perl6→Raku rename) is explicitly **not** a target for this feature; see §4.4.
 
+### 0. Compatibility & test policy
+
+**This project does not maintain source compatibility with upstream Rakudo.**
+Breaking changes to existing syntax/semantics are acceptable and expected —
+don't design around preserving old meanings, don't gate new syntax behind a
+language-revision bump or an `experimental` pragma for compatibility's sake,
+and don't spend effort trying to make an old and a new meaning of the same
+spelling coexist. Where §4 below discusses compatibility risk, read it as
+"here's what breaks" (useful to know), not "here's what we must prevent."
+
+Test-suite consequence: this repo's tests for existing behavior are **symlinks
+to upstream Rakudo's existing test files**, kept as long as they still pass.
+A test that would now fail because the behavior it checks was deliberately
+changed is **omitted** (the symlink is simply not added / is removed), not
+rewritten to assert the new behavior and not fixed to preserve the old one.
+Only genuinely new syntax/semantics get freshly written test files — see the
+two under `t/02-rakudo/` for the sigils themselves (`new-sigil-str.t`,
+`new-sigil-int.t`). There is no separate "regression guard" test file for
+old `~`/`#` operator or comment behavior; that's exactly the kind of thing
+this policy says to let break and drop, not defend.
+
 ### 1. Request
 
 Add two new sigils:
@@ -162,7 +183,7 @@ Key spots:
 
 ### 4. Risks, ordered by severity
 
-#### 4.1 `~` collides with existing operator uses of `~` — **high, possibly blocking**
+#### 4.1 `~` collides with existing operator uses of `~` — low, by policy (§0)
 
 `~` today is, all at term/operator level, not just twigil:
 - infix concatenation: `$a ~ $b`
@@ -171,32 +192,25 @@ Key spots:
 - `~~` smartmatch, `~=` concat-assign
 - the `~` twigil (§2)
 
-`~foo` **already parses today** as prefix-`~` applied to term `foo`. Making
-`~foo` also mean "the Str variable named foo" is a genuine grammar ambiguity,
-not just a style clash — same input, two meanings, and it's not solvable by
-whitespace convention the way `#`'s comment problem is, because `~foo` with
-no space is the *existing* valid spelling of the stringify-a-call form.
+`~foo` **already parses today** as prefix-`~` applied to term `foo`. That
+reading and "the `~`-sigiled variable named `foo`" are a genuine grammar
+ambiguity — same input, two meanings — and under a compatibility-preserving
+design this would need an LTM feasibility spike (whether `token variable`
+matching `~foo` as one unit beats the 1-character prefix-operator token
+`~` across the `<prefix>`/`<term>` proto-hierarchy boundary that NQP's
+generic `EXPR` operator-precedence method combines them through).
 
-Mitigation to prototype before committing to full implementation: NQP's
-grammar engine resolves same-position alternatives by longest-token-match
-(LTM). `token variable` (as a `<term>` alternative) matching `~foo` as one
-unit is a longer match than the 1-character prefix-operator token `~`, which
-in similar existing cases (see how `token twigil` cleanly disambiguates from
-other punctuation, or how `-` unary-minus vs. numeric-literal-sign is
-resolved elsewhere in this grammar) is exactly the kind of thing LTM is
-supposed to get right automatically. But `<prefix>` and `<term>` are
-different proto-hierarchies combined by the generic `EXPR`
-operator-precedence method (from NQP's `Cursor`), not one flat alternation —
-whether LTM applies *across* that boundary the way it does within a single
-`proto token` is not something to assume; it must be spiked. This is Phase 0
-below and gates everything else about `~`.
-
-Fallback if the spike fails: restrict the `~` sigil to declaration position
-only (`my ~x`, `has ~x`, signature parameters), and require existing `$x`-style
-access at use sites is a non-starter given the request's intent, so a cleaner
-fallback is picking a different, non-colliding character while keeping `#`
-as specified — worth a real conversation with the user if Phase 0 shows the
-LTM approach doesn't work cleanly.
+Per §0, that spike isn't required: **`~` directly followed by an
+identifier-start character, with no space, is defined to always mean the
+`~`-sigiled variable.** The old bareword-stringify reading of that exact
+spelling (`~foo` meaning `~(foo())`) is simply dropped — write `~ foo` (with
+a space) or `~(foo)` if that meaning is still wanted somewhere. `~$x`
+(stringify a `$`-sigiled variable), `$a ~ $b` (infix, space-delimited),
+`~~` (smartmatch, distinct two-char token), `~=` (distinct token), and the
+`~` twigil (only ever reachable *after* an existing sigil, e.g. `$~MAIN`,
+never at the start of a term) are all unaffected — none of them have an
+identifier immediately after a bare `~` at a term-starting position, so this
+rule doesn't touch them.
 
 #### 4.2 `#` vs. plain-`#` line comments — medium, solvable
 
@@ -216,25 +230,21 @@ safer rule than a blanket "space always required," and worth stating
 explicitly rather than assuming the user's literal "starts by `# `" wording
 is exhaustive.
 
-#### 4.3 Backward compatibility — high
+#### 4.3 Backward compatibility — accepted breakage, not a design constraint (§0)
 
-Both changes are backward-incompatible for existing source:
+Both changes are backward-incompatible for existing source. Recorded here as
+known fallout, not as something to engineer around (§0 — no language-revision
+gating, no `experimental` pragma, no dual-meaning support):
 - Any existing code with a bareword-stringify use of `~word` (rare but not
-  impossible) changes meaning if `~` becomes a sigil unconditionally.
-- Any existing comment written as `#word` with no space (extremely common —
-  section dividers, commented-out code, TODO markers) either becomes a
-  syntax/type error or silently changes meaning if `#` becomes a sigil
-  unconditionally.
+  impossible) changes meaning now that `~` is a sigil unconditionally (§4.1).
+- Any existing comment written as `#word` with no space (common — section
+  dividers, commented-out code, TODO markers) either becomes a compile error
+  (undeclared `#`-sigiled variable) or silently changes meaning, now that `#`
+  is a sigil unconditionally (§4.2).
 
-This repo already has a proven mechanism for exactly this situation:
-`$*LANGUAGE-REVISION` / `self.language-revision`, gating other breaking
-changes (e.g. `src/Raku/Grammar.nqp:243`, `:1771`, `:2753`). **Recommend
-gating both new sigils and the comment-spacing change behind a language
-revision bump** (or an `experimental` pragma while iterating), not a global
-change to `v6`/current-revision parsing. Don't skip this step even for a
-prototype — testing "does `~` sigil parsing work" against the live grammar
-without a gate will make every other `.rakutest`/roast file that has an
-unspaced `#comment` a false failure and hide real regressions.
+Practical upshot for the test suite (§0): any upstream Rakudo test that
+exercises one of these two now-defunct meanings is expected to start failing
+and should be omitted (not symlinked in), rather than fixed or preserved.
 
 #### 4.4 Two frontends — resolved: target Rakudo/RakuAST, not legacy Perl6
 
@@ -248,23 +258,19 @@ explicitly-scoped follow-up, not part of this branch.
 
 ### 5. Implementation plan
 
-Ordered; each phase assumes the previous one landed and its tests pass. Phase
-0 is a spike, not shippable work — do it before writing any of the "real"
-phases so the `~` feasibility question is answered with evidence.
+Ordered; each phase assumes the previous one landed and its tests pass. No
+spike/feasibility phase is needed for `~` (§4.1) now that compatibility with
+the old bareword-stringify reading isn't a requirement (§0) — the
+disambiguation is a design decision (sigil wins), not an open question.
 
-**Phase 0 — spike: `~` term/prefix disambiguation**
-Throwaway branch. Add `~` to `token sigil`, do nothing else, and write a
-handful of one-off parse tests: `~foo` as a fresh declaration, `~foo` after
-`~foo` was declared, `~$x` (existing stringify, must still work), `$a ~ $b`
-(existing infix, must still work), `~~ 42` (smartmatch), `~=` (concat-assign).
-Establish whether LTM resolves these correctly with no special-casing, or
-whether hand-written disambiguation (e.g. a negative lookahead in the prefix
-`~` token for "followed directly by identifier chars with no preceding
-space") is needed and how much it breaks. **Report back before Phase 2.**
+Test-first (§0, and the request that started this): `t/02-rakudo/new-sigil-str.t`
+and `t/02-rakudo/new-sigil-int.t` already exist and are the acceptance target
+for Phases 1-2 — they currently fail (nothing is implemented yet) and should
+go green as each phase lands.
 
 **Phase 1 — `#` sigil + comment-spacing rule (independent of `~`, lower risk)**
-- Add `#` to `token sigil` (`Grammar.nqp:5455`), gated by language revision.
-- Tighten `comment:sym<#>` per §4.2, gated the same way.
+- Add `#` to `token sigil` (`Grammar.nqp:5455`). No gating (§0).
+- Tighten `comment:sym<#>` per §4.2. No gating (§0).
 - Wire `#` to force `$of` to the native `int` type object, riding the
   existing primspec path in `IMPL-CONTAINER` (§2) rather than adding a new
   boxed-type branch; confirm `IMPL-CALCULATE-TYPES`'s default `$` branch
@@ -275,11 +281,12 @@ space") is needed and how much it breaks. **Report back before Phase 2.**
   `#`-sigiled declarations (new `X::Syntax::Variable::SigilImpliesType`).
 - Add `i1`/`i0` interpolation roles, compose into `qq` (`Grammar.nqp:6388`).
 - Parameters: wire `signature.rakumod` the same way.
-- Tests: parser tests for declaration/use/error cases, interpolation, params.
+- Get `t/02-rakudo/new-sigil-int.t` green.
 
-**Phase 2 — `~` sigil (only if Phase 0 spike is clean)**
-Same steps as Phase 1, mirrored for `~`/`Str`, plus explicit regression tests
-for every existing `~`-operator/twigil use listed in §4.1.
+**Phase 2 — `~` sigil**
+Same steps as Phase 1, mirrored for `~`/`Str`, applying the §4.1 resolution
+(bare `~identifier` always the sigil) with no compatibility fallback. Get
+`t/02-rakudo/new-sigil-str.t` green.
 
 **Phase 3 — attributes & introspection**
 `has ~x` / `has #x` (should mostly fall out of Phase 1/2 wiring since `has`
@@ -289,11 +296,12 @@ place that enumerates the sigil character set literally (grep for
 `'$@%&'`-style string constants beyond the ones found in §2 — there may be
 more, e.g. in `Metamodel`, MOP introspection, or `core.c` setting sources).
 
-**Phase 4 — docs, NEWS entry, roast-style tests, rollout**
-Update language docs, add a NEWS/changelog entry describing the language
-revision gate, and add tests in the style this repo's test suite already
-uses (`t/`, `roast` submodule if applicable) covering both success and error
-paths.
+**Phase 4 — test-suite triage (§0)**
+Run this repo's existing `t/`/spec-style suite, symlink in whatever upstream
+tests still pass unmodified, and omit (don't symlink, or remove) whatever now
+fails because it asserted one of the dropped old meanings (§4.3). Then docs
+and a NEWS/changelog entry noting the breaking changes plainly (since they're
+intentional, not gated).
 
 ### 6. Explicitly out of scope for MVP
 
@@ -326,6 +334,21 @@ i.e. after a `.`, the kind of subscript is inferred from what follows it:
 | `~expr` (Str sigil)  | `{~expr}`   | associative, key from a `~`-sigiled value |
 | `#expr` (int sigil)  | `[#expr]`   | positional, index from a `#`-sigiled value |
 
+**Resolving the biggest blocker — `.toto` vs. method calls:** parameterless
+method calls move to `->toto` (`@a->toto`), freeing plain `.toto` to mean
+`<toto>` unconditionally, with no runtime `FALLBACK` trick and no ambiguity
+with method dispatch. Method calls *with* arguments are unaffected and keep
+`.toto(args)` — `(` immediately after an identifier is not a subscript shape,
+so there's nothing to disambiguate there. `->` is free for this: today it
+only appears in pointy-block signatures (`-> $x { ... }`), a different
+grammatical position (statement/block-introducer, not postfix/dotty chain),
+so repurposing it as a postfix "call this parameterless method" operator
+doesn't collide with anything existing. This is a real, deliberate
+break from upstream Raku (where `.toto` is the only spelling for a
+parameterless method call) — acceptable per §0, and it's what makes the
+`@a.1.toto.~str.#int` equivalence in this section actually parse without a
+runtime fallback for the `.toto`/`<toto>` piece.
+
 **Why the `~`/`#` work here is the prerequisite, specifically:** Raku already
 lets a variable drive a subscript today, but only with explicit brackets —
 `.{$key}` for associative, `.[$idx]` for positional — because a bare
@@ -341,19 +364,16 @@ subscripting resolvable at parse time" — worth keeping in the front matter
 of the actual PR/commit description when this lands, not just here.
 
 **What §7 does *not* get for free from this branch, and will need its own
-design work:**
+design work** (the `.toto`-vs-method-call clash itself is resolved above by
+moving parameterless calls to `->`, not left as an open problem):
 
-- `.toto` (bare identifier after `.`) is, today, unconditionally a *method
-  call* — `token methodop`'s `<longname>` branch,
-  `src/Raku/Grammar.nqp:2650-2652`. Reinterpreting it as `<toto>` (a hash-key
-  literal) as well is a real clash with every existing method call, not a
-  parse ambiguity that LTM or a sigil can resolve, because both readings use
-  the exact same token shape (`.` + identifier). This most likely has to be
-  a *runtime* fallback (e.g. `Associative`-consuming types growing a
-  `FALLBACK` that turns "no such method `toto`" into `self{'toto'}`), not a
-  grammar change — flag this explicitly to whoever designs §7, since it's
-  the one piece of the equivalence example that doesn't reduce to a parsing
-  problem at all.
+- Moving parameterless method calls to `->toto` still touches every existing
+  parameterless `.identifier` call site in the language — `token methodop`'s
+  `<longname>` branch, `src/Raku/Grammar.nqp:2650-2652`, is where that
+  grammar-level split (parameterless → error/reinterpret, with-args → stays
+  `.identifier(...)`) has to happen. That's a mechanical but wide-reaching
+  change (every method call without explicit `()` in existing code and specs
+  needs rewriting to `->`), independent of the sigil work in this branch.
 - `.1` (bare integer after `.`) doesn't collide with anything today — plain
   `.` followed by a digit isn't valid `dottyop` syntax currently (`methodop`
   has no numeric-literal branch, `src/Raku/Grammar.nqp:2650-2661`), so this
