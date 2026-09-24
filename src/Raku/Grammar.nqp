@@ -2496,6 +2496,15 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # mistyped call, to make dot-less).
           | '.' <?before \d> <OPER=dotty-numeric-index>
 
+          # SUBSCRIPT-OPERATOR.md §5 Phase 2: `.~expr`/`.#expr` are sugar
+          # for `{~expr}`/`[#expr]` — a bare `~`/`#`-sigiled variable
+          # reference directly after `.`, no space. `~`/`#` are the only
+          # sigils that trigger this (not a generic "any sigil after dot"
+          # mechanism): a `$`-sigiled variable here keeps its existing,
+          # unrelated meaning (methodop's <?[$@&]> <variable> branch,
+          # "invoke the callable held in this variable").
+          | '.' <?[~#]> <OPER=dotty-sigil-index>
+
           | <OPER=dotty>
 
           | <OPER=privop>
@@ -2610,6 +2619,18 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token dotty-numeric-index {
         :dba('numeric postfix index')
         $<int>=[\d+]
+    }
+
+    # SUBSCRIPT-OPERATOR.md §5 Phase 2: `.~expr`/`.#expr` sugar for
+    # `{~expr}`/`[#expr]`. Same "standalone token, not a postcircumfix
+    # candidate" reasoning as dotty-numeric-index above doesn't strictly
+    # apply here (a bare-sigil match still requires the distinctive `~`/`#`
+    # character, unlike bare digits), but kept alongside it for symmetry
+    # and because <variable> already fully handles sigil/twigil/desigilname
+    # parsing — no need to duplicate any of that here.
+    token dotty-sigil-index {
+        :dba('sigil-driven postfix subscript')
+        <variable>
     }
 
 #-------------------------------------------------------------------------------

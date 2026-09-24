@@ -7,8 +7,12 @@ sections 2 and 4 in particular contain corrections to the original design
 idea that only came from actually testing things against a real build, and
 skipping them will send you down paths already found to be dead ends.
 
-Status: **Phase 1 (`.1`) done and passing** (`t/02-rakudo/dot-subscript-
-numeric.t`, 7/7). Phases 2-4 not started. Branch `new-sigils`.
+Status: **Phases 1-2 done and passing** — `.1` (`t/02-rakudo/dot-subscript-
+numeric.t`, 7/7) and `.~expr`/`.#expr` (`dot-subscript-sigil.t`, 8/8), both
+the confirmed-low-risk two-thirds of the feature (§4.4). Phase 3 (`.name` →
+`<name>`, `->name`) not started — **do not start it without first resolving
+§4.1's open question**; that's the hard, high-risk part. Branch
+`new-sigils`.
 
 ## 0. Relationship to this branch's other work
 
@@ -326,19 +330,34 @@ bullet list:
   isn't consumed by the `<?before \d>` lookahead, so the new alternative
   never even attempts to match) — still explicitly out of scope (§6).
 
-**Phase 2 — `.~expr` / `.#expr` (variable-driven subscripts)**
-- Same mechanism as Phase 1, for a bare `~`-sigiled or `#`-sigiled
-  variable reference immediately after `.` — reuse `token variable`'s
-  existing sigil-specific parsing (it already knows how to recognize
-  `~name`/`#name`) rather than re-implementing sigil recognition here.
-- `.~expr` builds the same AST as `postcircumfix:sym<{ }>` would with that
-  variable reference as the semilist; `.#expr` the same as
-  `postcircumfix:sym<[ ]>`.
-- Tests: `%h.~key` reads the same as `%h{~key}`; `@a.#idx` reads the same
-  as `@a[#idx]`; confirm a `$`-sigiled variable in the same position does
-  *not* trigger this (that's `.{$key}`/`.[$idx]`'s job, unchanged, still
-  requiring explicit brackets) — this sugar is `~`/`#`-specific by design
-  (§1), not a generic "any sigil after dot" mechanism.
+**Phase 2 — `.~expr` / `.#expr` (variable-driven subscripts) — DONE.**
+`t/02-rakudo/dot-subscript-sigil.t` is 8/8 on the first working attempt (no
+false starts this time — Phase 1's IntLiteral-wrapping lesson generalized
+cleanly), verified against a rebuild with a full regression sweep (both
+sigil test files 18/18, Phase 1's own test 7/7, `use Test` loads, existing
+`%h<a>`/`%h.<a>`/`%h{$key}`/`@a.1`/method calls all unaffected).
+
+What shipped, matching the plan closely:
+- A second standalone token, `token dotty-sigil-index { <variable> }`,
+  reached via a new `'.' <?[~#]> <OPER=dotty-sigil-index>` alternative in
+  `postfixish`, right after Phase 1's numeric one. Unlike Phase 1's literal,
+  no manual `\d+`-parsing was needed — `<variable>` already fully handles
+  `~`/`#`'s sigil/twigil/desigilname parsing, so this token is a one-liner.
+- The action reads `~$<variable><sigil>` to decide `Postcircumfix::
+  HashIndex` (for `~`) vs. `::ArrayIndex` (for `#`), each wrapping
+  `$<variable>.ast` in the same `SemiList`/`Statement::Expression` shell
+  Phase 1 used. **One difference from Phase 1 worth remembering**:
+  `$<variable>.ast` (via `compile-variable-access`) is *already* a proper
+  `RakuAST::Expression` — no `IntLiteral`-style extra wrap needed, since a
+  variable reference isn't a raw value the way `intern-Int-by-base`'s
+  return was.
+- L-value assignment for both `.~key = val` and `.#idx = val`, and chaining
+  (`%h.~k.#i`, mixing this sugar with itself) all worked immediately, same
+  "same AST node → same behavior for free" story as Phase 1.
+- Confirmed `.{$key}`/`$`-sigil dotty behavior (the pre-existing "invoke
+  the callable held in this variable" mechanism, `methodop`'s `<?[$@&]>
+  <variable>` branch) is untouched — `$` was never added to the new
+  alternative's lookahead, so `%h.$key` still means what it meant before.
 
 **Phase 3 — `.name` → `<name>`, `->name` for method calls (the hard part)**
 - **Do not start this phase without first resolving §4.1's open question**

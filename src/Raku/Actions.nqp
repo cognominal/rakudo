@@ -2100,6 +2100,23 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         );
     }
 
+    # SUBSCRIPT-OPERATOR.md §5 Phase 2: `.~expr`/`.#expr` sugar for
+    # `{~expr}`/`[#expr]` — same node postcircumfix:sym<{ }>/sym<[ ]> build,
+    # keyed by the ~/# sigil of the already-fully-parsed <variable> (which
+    # handles its own twigil/desigilname, so its .ast is a ready-made
+    # RakuAST::Expression — unlike dotty-numeric-index's literal above, no
+    # extra wrapping is needed here beyond the SemiList/Statement::Expression
+    # shell every postcircumfix index needs).
+    method dotty-sigil-index($/) {
+        my str $sigil    := ~$<variable><sigil>;
+        my $semilist     := Nodify('SemiList').new(
+          Nodify('Statement::Expression').new(expression => $<variable>.ast)
+        );
+        self.attach: $/, $sigil eq '~'
+          ?? Nodify('Postcircumfix::HashIndex').new(:index($semilist))
+          !! Nodify('Postcircumfix::ArrayIndex').new(:index($semilist));
+    }
+
     method postcircumfix:sym<{ }>($/) {
         self.attach: $/, Nodify('Postcircumfix::HashIndex').new(:index($<semilist>.ast));
     }
