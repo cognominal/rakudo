@@ -2487,6 +2487,15 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
 
           | '.' <?[ [ { < ]> <OPER=postcircumfix>
 
+          # SUBSCRIPT-OPERATOR.md §5 Phase 1: `.1` is sugar for `[1]` — a
+          # bare digit run directly after `.`, no space (the leading dot is
+          # required here, unlike the bracket forms above, which are also
+          # reachable without one via the bare <OPER=postcircumfix>
+          # alternative two lines up — a bare digit with no dot and no
+          # bracket is far too easy to hit by accident, e.g. after a
+          # mistyped call, to make dot-less).
+          | '.' <?before \d> <OPER=dotty-numeric-index>
+
           | <OPER=dotty>
 
           | <OPER=privop>
@@ -2588,6 +2597,20 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token postcircumfix:sym<[; ]> { <!> }
     token postcircumfix:sym<{; }> { <!> }
     token circumfix:sym<:{ }> { <!> }
+
+    # SUBSCRIPT-OPERATOR.md §5 Phase 1: `.1` sugar for `[1]`. Deliberately a
+    # standalone token, not a new postcircumfix:sym<...> candidate: every
+    # existing postcircumfix has a distinctive leading delimiter ((, [, {,
+    # <, «), and postfixish's bare <OPER=postcircumfix> alternative (no dot
+    # required) tries all of them at every postfix position — a candidate
+    # matching *just* digits, with no such delimiter, would make that same
+    # alternative fire on a bare number after any term, dot or not. Kept out
+    # of the postcircumfix proto entirely and only reachable through the
+    # explicit '.' <?before \d> branch in postfixish above.
+    token dotty-numeric-index {
+        :dba('numeric postfix index')
+        $<int>=[\d+]
+    }
 
 #-------------------------------------------------------------------------------
 

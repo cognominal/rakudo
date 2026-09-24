@@ -2081,6 +2081,25 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         self.attach: $/, Nodify('Postcircumfix::ArrayIndex').new(:index($<semilist>.ast));
     }
 
+    # SUBSCRIPT-OPERATOR.md §5 Phase 1: `.1` is sugar for `[1]` — builds the
+    # exact same RakuAST::Postcircumfix::ArrayIndex node postcircumfix:sym<[
+    # ]> above does, with the parsed integer as the sole semilist element,
+    # so it gets l-value/assignment behavior etc. for free by being the
+    # same node, not a lookalike.
+    method dotty-numeric-index($/) {
+        self.attach: $/, Nodify('Postcircumfix::ArrayIndex').new(
+          :index(Nodify('SemiList').new(
+            Nodify('Statement::Expression').new(
+              expression => Nodify('IntLiteral').new(
+                $*LITERALS.intern-Int-by-base(
+                  ~$<int>, 10, -> { $/.panic("'$/' is not a valid number") }
+                )
+              )
+            )
+          ))
+        );
+    }
+
     method postcircumfix:sym<{ }>($/) {
         self.attach: $/, Nodify('Postcircumfix::HashIndex').new(:index($<semilist>.ast));
     }

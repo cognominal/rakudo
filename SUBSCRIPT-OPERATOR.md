@@ -7,7 +7,8 @@ sections 2 and 4 in particular contain corrections to the original design
 idea that only came from actually testing things against a real build, and
 skipping them will send you down paths already found to be dead ends.
 
-Status: **design draft, nothing implemented.** Branch `new-sigils`.
+Status: **Phase 1 (`.1`) done and passing** (`t/02-rakudo/dot-subscript-
+numeric.t`, 7/7). Phases 2-4 not started. Branch `new-sigils`.
 
 ## 0. Relationship to this branch's other work
 
@@ -280,21 +281,50 @@ Ordered by risk, per §4.4's recommendation — do the confirmed-safe parts
 first, and don't start §5.3 until §4.1's open question (mechanical rewrite
 vs. runtime fallback) has an actual decision behind it.
 
-**Phase 1 — `.1` (literal positional index)**
-- Add a new alternative to wherever `dottyop`/`postfixish` tries
-  postcircumfix forms, matching a bare digit run immediately after `.`
-  (mirror `token variable`'s existing `$<index>=[\d+]` pattern for the
-  regex shape, but this is building a *postcircumfix*, not a variable).
-- Actions.nqp: build the identical AST `postcircumfix:sym<[ ]>`'s own
-  action method builds, with the parsed integer as the sole semilist
-  element — read that action method first and reuse its node construction
-  rather than inventing a parallel path.
-- Write tests before implementing (this repo's established pattern, see
-  CLAUDE.md §0/§5): `@a.1` reads the same as `@a[1]`; `@a.1 = 5` assigns
-  the same as `@a[1] = 5`, if l-value subscripting matters here; negative
-  numbers and non-digit content after `.` are explicitly out of scope for
-  this phase (§6) — test that they correctly *don't* match this new
-  alternative (i.e. `.1e5` or `.1_000` should not be silently mishandled).
+**Phase 1 — `.1` (literal positional index) — DONE.**
+`t/02-rakudo/dot-subscript-numeric.t` is 7/7, verified against a rebuild of
+this branch (`RAKUDO_RAKUAST=1`), with a full regression sweep (both sigil
+test files still 18/18, `use Test` still loads, `@a[1]`/`@a.[1]`/`%h<a>`/
+`%h.<a>`/`$x++`/plain method calls all unaffected).
+
+What actually shipped, kept deliberately minimal relative to the original
+bullet list:
+- **Not a new `postcircumfix:sym<...>` candidate.** Every existing
+  postcircumfix has a distinctive leading delimiter (`(`, `[`, `{`, `<`,
+  `«`); `postfixish`'s bare `<OPER=postcircumfix>` alternative (§2, no dot
+  required) tries all of them at *every* postfix position. A candidate
+  matching bare digits, with no such delimiter, would make that same
+  alternative fire on a bare number after any term — dot or not. So this is
+  a **standalone token** (`token dotty-numeric-index`, next to the
+  postcircumfix definitions for locality but not part of that proto),
+  reachable only through a new, explicit `'.' <?before \d> <OPER=dotty-
+  numeric-index>` alternative in `postfixish`, right next to the existing
+  `'.' <?[ [ { < ]> <OPER=postcircumfix>` line.
+- Actions.nqp builds `RakuAST::Postcircumfix::ArrayIndex` (same node
+  `postcircumfix:sym<[ ]>` builds) with a `RakuAST::SemiList` wrapping one
+  `RakuAST::Statement::Expression` wrapping one `RakuAST::IntLiteral` — same
+  shape as the `my %h{Any}` shape-declaration example already commented in
+  `variable-declaration.rakumod:1742` for exactly this "build a SemiList by
+  hand" situation, worth finding and reading before writing this by hand
+  from scratch. One non-obvious step: `$*LITERALS.intern-Int-by-base(...)`
+  (the same call `token decint`'s own action uses to parse a digit string)
+  returns a **raw `Int` value, not an AST node** — feeding it directly into
+  `expression =>` fails with `Type check failed in binding to parameter
+  '$expression'; expected RakuAST::Expression but got Int` (hit this on the
+  first attempt). It needs one more wrap: `RakuAST::IntLiteral.new(...)`
+  around the raw value.
+- L-value assignment (`@a.1 = "X"`) and chaining (`@a.1.1`) work with zero
+  extra code, confirming the "same AST node → same behavior for free"
+  premise the plan predicted.
+- The two "record, don't assert" edge cases (§6 — `.1e5`, `.1_0`) both
+  fail to parse cleanly (`\d+` matches just the leading digit run, then the
+  dangling `e5`/`_0` has nothing to attach to) rather than silently
+  behaving as index `1`/`10` — a safe, if not especially friendly, outcome.
+  Not pursued further; still explicitly out of scope (§6).
+- Negative indices (`@a.-1`) confirmed to still cleanly fall through to the
+  original "Malformed postfix call" error, unaffected by this change (`-`
+  isn't consumed by the `<?before \d>` lookahead, so the new alternative
+  never even attempts to match) — still explicitly out of scope (§6).
 
 **Phase 2 — `.~expr` / `.#expr` (variable-driven subscripts)**
 - Same mechanism as Phase 1, for a bare `~`-sigiled or `#`-sigiled
