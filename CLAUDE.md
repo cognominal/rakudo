@@ -8,7 +8,11 @@ do for me," and the rest of the file for "how/why is it built this way."
 
 ## Feature: new fixed-type sigils `~` (Str) and `#` (int)
 
-Status: **design draft, nothing implemented yet**. Branch `new-sigils`.
+Status: **Phases 1-2 implemented and passing (§5)** — both sigils work
+end-to-end (`t/02-rakudo/new-sigil-int.t`, `new-sigil-str.t`, 18/18 each),
+verified against a from-scratch build of this branch run with
+`RAKUDO_RAKUAST=1`. Phases 3-4 (attributes/introspection audit,
+test-suite triage) not started. Branch `new-sigils`.
 
 Target: **Rakudo's RakuAST frontend (`src/Raku/*`) only.** The legacy
 QAST-generating frontend (`src/Perl6/*` — a naming holdover from before the
@@ -349,33 +353,91 @@ and `t/02-rakudo/new-sigil-int.t` already exist and are the acceptance target
 for Phases 1-2 — they currently fail (nothing is implemented yet) and should
 go green as each phase lands.
 
-**Phase 1 — `#` sigil + comment-spacing rule (independent of `~`, lower risk)**
-- Add `#` to `token sigil` (`Grammar.nqp:5455`). No gating (§0).
-- Tighten `comment:sym<#>` per §4.2. No gating (§0).
-- Wire `#` to force `$of` to the native `int` type object, riding the
-  existing primspec path in `IMPL-CONTAINER` (§2) rather than adding a new
-  boxed-type branch; confirm `IMPL-CALCULATE-TYPES`'s default `$` branch
-  (line 265-269) needs no change beyond that, and decide how `state #x`
-  should fail (reuse the existing NYI message, or a clearer one naming the
-  sigil).
-- Reject explicit types/`is Type` (`int`, `Int`, or anything else) on
-  `#`-sigiled declarations (new `X::Syntax::Variable::SigilImpliesType`).
-- Add `i1`/`i0` interpolation roles, compose into `qq` (`Grammar.nqp:6388`).
-- Parameters: wire `signature.rakumod` the same way.
-- Get `t/02-rakudo/new-sigil-int.t` green.
+**Phase 1 — `#` sigil + comment-spacing rule — DONE.** `t/02-rakudo/
+new-sigil-int.t` is 18/18. What actually shipped (commit "Phase 1 complete:
+# sigil fully wired, 18/18 tests passing"), beyond the bullets originally
+planned here:
+- `#` forcing native `int` needed more than feeding `int` in as `$of`: six
+  places had `sigil eq '$'` hardcoded as the native-scalar gate (lexical
+  declaration codegen, `state` NYI check, bind-type check, lvalue lookup
+  scope, local-lowering decline, plus one in `variable-access.rakumod` and
+  one in `code.rakumod`) — all now go through a shared
+  `IMPL-SIGIL-CAN-BE-NATIVE` predicate instead of the literal comparison.
+- A bareword native-type keyword (`int`) written directly in this
+  bootstrap-compiled `.rakumod` resolves to NQP's own lower-level native
+  (`NQPNativeHOW`, no `.mro`), not the Raku-level one (`Perl6::Metamodel::
+  NativeHOW`) that `my int $x` gets via the resolver — forcing `$of` needs
+  the resolved value (`$!forced-native-int` in `variable-declaration.
+  rakumod`, resolved once in `PERFORM-BEGIN`), not the bare literal.
+- The `SigilImpliesType` check has to run in two places, not one: the
+  explicit-type half in `PERFORM-BEGIN` *before* the `where`-clause subset
+  synthesis there (which unconditionally overwrites `$!type`, so checking
+  after misfires on `my #x where * > 0 = 5`), and the `is Type`-trait half
+  in `PERFORM-CHECK` (traits aren't processed until `PERFORM-BEGIN` runs).
+- `where` on a native sigil isn't actually exercisable at all yet — Rakudo
+  doesn't support subsets of native types currently ("Subsets of native
+  types not yet implemented", confirmed identical for `my int $x where
+  ...`), so `#x`/`~x where COND` die unconditionally, regardless of whether
+  the value would satisfy the condition. Not a bug in this feature; just
+  another inherited native-scalar limitation alongside the `state` one.
+- `#` inside a `qq` string needed a "looks like a sigil" guard (identifier,
+  or twigil+identifier, directly after, no space) before even attempting
+  interpolation — a literal `#` is extremely common in ordinary string
+  content (this broke loading `lib/Test.rakumod`'s own TAP line, `"1..0 #
+  Skipped: $reason"`, before the guard was added). Also: setting `$*QSIGIL`
+  to `'#'` in that interpolation role hung the parser (infinite loop); root
+  cause untracked, so the role just omits it.
+- **Known gap, not yet audited:** `#`-sigiled signature parameters
+  (`sub f(#x)`) read/write correctly but haven't been confirmed to actually
+  be *native* the way `my #n` now is — `RakuAST::ParameterTarget::Var` has
+  no container-creator machinery of its own to force through. Candidate
+  first task for Phase 3.
 
-**Phase 2 — `~` sigil**
-Same steps as Phase 1, mirrored for `~`/native `str` (not boxed `Str` — see
-§3.1), applying the §4.1 resolution (bare `~identifier` always the sigil)
-with no compatibility fallback. Get `t/02-rakudo/new-sigil-str.t` green.
+**Phase 2 — `~` sigil — DONE.** `t/02-rakudo/new-sigil-str.t` is 18/18.
+Mirrored Phase 1's wiring for native `str`, plus the part Phase 1 didn't
+need: making §4.1's design decision (bare `~identifier` always the sigil)
+real in the grammar (commit "Phase 2 complete: ~ sigil fully wired, 18/18
+tests passing"):
+- `token prefix:sym<~>` gets the negative lookahead (identifier, or
+  twigil+identifier, directly after — same shape as the `#`-vs-comment
+  guard) that makes it decline in favor of `term:sym<variable>` claiming
+  `~foo`. `~$x`, `~42`, `~(...)`, infix `~`, `~~`, `~=`, and the `~` twigil
+  are all untouched (none of them have an identifier directly after a bare
+  `~` at a term-starting position).
+- That alone wasn't sufficient: `token variable` has three sigil-generic
+  fallback branches — `$0`-style numeric capture, `$<foo>`-style match-name
+  capture, and a bare-sigil "anonymous state variable" catch-all (a real,
+  pre-existing feature: bare `$`/`@`/`%`/`&` alone as a term references the
+  most recent `state` declaration of that sigil in scope). None of these
+  are meaningful for a fixed-type native sigil, and left unexcluded the
+  catch-all specifically broke `~42`: with the other two branches declined,
+  it fell through to matching *just* the `~` as an anonymous state
+  variable, leaving `42` dangling — and since state can't be native, that
+  crashed with the `state` NYI instead of leaving `42` for `prefix:sym<~>`
+  to stringify. All three branches now explicitly exclude `~`/`#` (`#`
+  didn't strictly need it — `comment:sym<#>` already keeps `#42`/bare `#`
+  from ever reaching `token variable` — but excluded for consistency rather
+  than relying solely on that).
+- Same interpolation guard and `$*QSIGIL` omission as `#`'s `i1`, applied
+  proactively to `~`'s `t1` rather than rediscovering the same two bugs.
+- Same known gap as Phase 1: `~`-sigiled signature parameters aren't
+  confirmed native either.
 
 **Phase 3 — attributes & introspection**
-`has ~x` / `has #x` (should mostly fall out of Phase 1/2 wiring since `has`
-shares the `scoped`/`variable-declaration.rakumod` path — verify, don't
-assume). Check `.sigil`, `.VAR`, `.perl`/`.raku` round-tripping, and any
-place that enumerates the sigil character set literally (grep for
-`'$@%&'`-style string constants beyond the ones found in §2 — there may be
-more, e.g. in `Metamodel`, MOP introspection, or `core.c` setting sources).
+- First task: audit whether `#x`/`~x` signature parameters are actually
+  native, not just correct-by-value — Phase 1/2 confirmed the latter but not
+  the former (see the known-gap notes on both phases above).
+- `has ~x` / `has #x` — already confirmed working (both test files, "has
+  ~.x"/"has #.x" attribute tests), so this part is done, not just planned.
+- Still open: `.sigil`, `.VAR`, `.perl`/`.raku` round-tripping, and any
+  place that enumerates the sigil character set literally (grep for
+  `'$@%&'`-style string constants beyond the ones found in §2 — there may be
+  more, e.g. in `Metamodel`, MOP introspection, or `core.c` setting
+  sources). Also unaudited: the two cosmetic `'$@%&'`-literal sites found
+  while implementing Phase 1 (an error-message heuristic for common P5-isms
+  at `Grammar.nqp:3517`, and a Levenshtein typo-suggestion cost function at
+  `resolver.rakumod:1032`) — harmless as-is, `~`/`#` just won't get the
+  nicer wording/suggestions those give `$@%&`.
 
 **Phase 4 — test-suite triage (§0)**
 Run this repo's existing `t/`/spec-style suite, symlink in whatever upstream
