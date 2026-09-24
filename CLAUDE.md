@@ -36,13 +36,15 @@ this policy says to let break and drop, not defend.
 
 Add two new sigils:
 
-- `~name` — always a `Str`-typed (boxed) scalar variable.
+- `~name` — always a native-`str`-typed scalar variable (not boxed `Str`).
 - `#name` — always a native-`int`-typed scalar variable (not boxed `Int`).
 
-Note the deliberate asymmetry: `~` implies the boxed class `Str`, `#` implies
-the *native* type `int`, not the boxed class `Int`. This mirrors the user's
-own wording ("String" vs. "int") and has real implementation consequences —
-see §3 and §5, Phase 1.
+Both are native, symmetrically — `~name` is a plain string, `#name` is a
+plain integer, neither wrapped in a `Scalar` container. Earlier drafts of
+this spec had `~` map to boxed `Str` and framed the `~`/boxed-`Str` vs.
+`#`/native-`int` split as a deliberate asymmetry; that's superseded — `~` now
+matches `#` in being native. See §3.1 for why dropping the
+`Scalar`-container/reference machinery is fine for both sigils, not just `#`.
 
 Because the sigil *is* the type, an explicit type in the declaration is
 redundant at best and contradictory at worst, so it's a compile-time error to
@@ -121,12 +123,12 @@ Key spots:
     and falls through to unconstrained.
   - `IMPL-CALCULATE-TYPES` (line 196-316) is the real per-sigil branch: `@`
     (208), `%` (229), `&` (256), else (265, today only `$`) sets
-    `container-base-type`/`container-type`/`bind-constraint`/`default`. This
-    is where the `~` branch gets added (default `Str`, base type `Scalar`,
-    bind-constraint `Str`) — same shape as `$`, just with a forced default.
-  - `#` is different: it isn't "another boxed-Scalar branch," it's "`$`
-    with `$of` forced to the native `int` type object." The relevant code
-    already exists for this, in `IMPL-CONTAINER` (line 336-361):
+    `container-base-type`/`container-type`/`bind-constraint`/`default`. Both
+    `~` and `#` are **not** new branches here — see next bullet.
+  - `~` and `#` are both "`$` with `$of` forced to a native type object"
+    (`str` for `~`, `int` for `#`), not new boxed-Scalar branches. The
+    relevant code already exists for this, in `IMPL-CONTAINER` (line
+    336-361):
     ```
     if $sigil ne '@' && $sigil ne '%' {
         if nqp::objprimspec($of) {
@@ -138,14 +140,20 @@ Key spots:
     ```
     i.e. when `$of` has a primitive spec (native `int`/`num`/`str`), no
     `Scalar` container object is created at all — the variable lives as a
-    raw native local, exactly like today's explicit `my int $x`. Making
-    `#name` mean native int is a matter of feeding `int` in as `$of` for
-    `#`-sigiled declarations, not writing new container logic — but it also
-    means `#name` **inherits existing native-scalar limitations**, notably
-    the `state` NYI death above (`state #x` won't work until that's fixed,
-    independent of this feature), no `Mu`/undefined state (natives default
-    to `0`, can't hold `Nil`), and attribute (`has #x`) vs. non-attribute
+    raw native local, exactly like today's explicit `my int $x` / `my str $x`.
+    Making `~name`/`#name` mean native `str`/`int` is a matter of feeding
+    `str`/`int` in as `$of` for `~`/`#`-sigiled declarations respectively,
+    not writing new container logic — but it also means both **inherit
+    existing native-scalar limitations**, notably the `state` NYI death
+    above (confirmed live for both `state str $x` and `state int $x` today,
+    so `state ~x`/`state #x` won't work until that's fixed, independent of
+    this feature), no `Mu`/undefined state (natives default to `""`/`0`,
+    can't hold `Nil`), and attribute (`has ~x`/`has #x`) vs. non-attribute
     behavior already forking at `return nqp::null unless $attribute` above.
+    Verified against a stock Rakudo build: `my str $x;` defaults to `""`,
+    reassignment works, and `has str $.x`/`has int $.x` (public native
+    attributes) already work today — see §3.1 for why native (no container)
+    is the right choice for both sigils, not a compromise specific to `#`.
   - The explicit-type/`is Type` path (line 271-292,
     `IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE`) is exactly the mechanism to
     **reject** for `~`/`#`: if a sigil is `~` or `#`, any explicit type
@@ -161,25 +169,73 @@ Key spots:
 
 ### 3. Proposed semantics
 
-- `~name` declares/refers to a `Str`-bound scalar (`Scalar` container,
-  bind-constraint `Str`, default value per current `Str` default rules) —
-  the same boxed shape `@`/`%`/`&` already use for their implied roles.
+- `~name` declares/refers to a native-`str` scalar — no `Scalar` container
+  object (see §2), value defaults to `""`, cannot be `Nil`/undefined, and
+  currently cannot be `state`-scoped (inherits the existing native-scalar
+  `state` NYI). This is the same semantics as today's `my str $x`, just
+  spelled with the sigil instead of an explicit type.
 - `#name` declares/refers to a native-`int` scalar — no `Scalar` container
   object (see §2), value defaults to `0`, cannot be `Nil`/undefined, and
   currently cannot be `state`-scoped (inherits the existing native-scalar
   `state` NYI). This is the same semantics as today's `my int $x`, just
   spelled with the sigil instead of an explicit type.
-- `my Str ~x`, `my int #x`, `my Int #x`, `my ~x is Str`, `my Foo ~x`, etc.
-  are all compile-time errors ("sigil `~`/`#` already implies a type; remove
-  the explicit type"). One new typed exception, e.g.
+- `my Str ~x`, `my str ~x`, `my int #x`, `my Int #x`, `my ~x is Str`,
+  `my Foo ~x`, etc. are all compile-time errors ("sigil `~`/`#` already
+  implies a type; remove the explicit type"). One new typed exception, e.g.
   `X::Syntax::Variable::SigilImpliesType`, covers both the redundant-match
-  case (`my int #x`) and the conflicting-mismatch case (`my Int #x`,
-  `my Str #x`) — the user's spec treats them the same ("can't be typed"), so
-  don't special-case "but you named the same type".
+  case (`my str ~x`, `my int #x`) and the conflicting-mismatch case
+  (`my Str ~x`, `my Int #x`, `my Str #x`) — the user's spec treats them the
+  same ("can't be typed"), so don't special-case "but you named the same
+  type".
 - `~name where *.chars > 0` remains legal — `where` adds a runtime
   refinement, it isn't a type in the sigil sense.
 - Applies to `my`/`our`/`state`/`has`/`HAS` scopes and to signature
   parameters, symmetrically with `$`.
+
+#### 3.1 Why native, not boxed — references aren't needed for subscripting
+
+`$`-sigiled variables are backed by a `Scalar` container object precisely
+*because* Raku wants more than "holds a value" from them: a `Scalar` lets a
+variable be re-bound to a different value's storage (`:=`), passed into a
+sub by reference so the callee can mutate the caller's variable (`is rw`),
+and generally be aliased so two names can refer to the same storage slot.
+None of that is what `~name`/`#name` are for.
+
+Their entire reason to exist (§1, §7) is to drive the new `.` subscript
+operator unambiguously: `.~expr` picks `{}` because `~expr`'s sigil
+guarantees a string, `.#expr` picks `[]` because `#expr`'s sigil guarantees
+an integer. That's it — a subscript position **reads** the value once, to
+decide which key or index to hit, and moves on. It never needs to:
+- write back through the subscript expression itself (`@a[$i] = 5` mutates
+  the *array slot* `$i` names, never `$i` itself),
+- keep the container being subscripted holding a live alias to the variable
+  that supplied the key/index, or
+- hand the key/index off to something else that expects to mutate it by
+  reference.
+
+So the `Scalar` container's entire reason for existing — supporting
+aliasing/rebinding/mutation-by-reference — is dead weight for this use case.
+A plain native value (`str`/`int`) is not a lesser version of a `$` variable
+for this purpose, it's the *right-sized* one: cheaper (no boxing, no
+container allocation), and it still supports ordinary local reassignment
+(`~name = "new value"` — confirmed: reassigning a native lexical works fine
+today) — the only thing genuinely given up is aliasing/rw-by-reference,
+which a subscript key/index was never going to use.
+
+This is also why it doesn't matter that Rakudo's native-lexical
+implementation happens to support some binding today (`my str $x = "a"; my
+$y := $x; $y = "z";` does mutate `$x` too, confirmed against a stock build) —
+that's an implementation detail of native locals, not something `~`/`#`
+depend on or should be designed around. The argument for dropping the
+`Scalar` container isn't "natives literally can't be aliased," it's "the
+subscript use case never asks for aliasing in the first place," so there's
+nothing lost by choosing the simpler representation.
+
+If some future use of `~`/`#` outside subscripting turns out to genuinely
+need alias/rebind/rw-parameter semantics, that's a sign it should have been
+an explicitly-typed `$` variable (`my Str $x` / `my Int $x`) instead — `~`/
+`#` are not meant to be general-purpose replacements for typed `$`
+variables, just the fixed-type, subscript-driving pair described in §1.
 
 ### 4. Risks, ordered by severity
 
@@ -284,9 +340,9 @@ go green as each phase lands.
 - Get `t/02-rakudo/new-sigil-int.t` green.
 
 **Phase 2 — `~` sigil**
-Same steps as Phase 1, mirrored for `~`/`Str`, applying the §4.1 resolution
-(bare `~identifier` always the sigil) with no compatibility fallback. Get
-`t/02-rakudo/new-sigil-str.t` green.
+Same steps as Phase 1, mirrored for `~`/native `str` (not boxed `Str` — see
+§3.1), applying the §4.1 resolution (bare `~identifier` always the sigil)
+with no compatibility fallback. Get `t/02-rakudo/new-sigil-str.t` green.
 
 **Phase 3 — attributes & introspection**
 `has ~x` / `has #x` (should mostly fall out of Phase 1/2 wiring since `has`
@@ -305,10 +361,12 @@ intentional, not gated).
 
 ### 6. Explicitly out of scope for MVP
 
-- Native `str` storage for `~` (it's specified as boxed `Str`; only `#` is
-  native, per §3's deliberate asymmetry).
-- Boxed `Int` as an alternative reading of `#` — the spec is native `int`;
-  don't hedge by making it configurable.
+- Boxed `Str`/`Int` as an alternative reading of `~`/`#` — both sigils are
+  native (§1, §3.1); don't hedge by making it configurable.
+- Any `Scalar`-container capability for `~`/`#` — aliasing (`:=`), `is rw`
+  parameters relying on container identity, rebinding. §3.1 covers why this
+  is a deliberate cut, not an oversight; a plain `$` with an explicit type
+  is the escape hatch for code that genuinely needs those.
 - Sigils for other types (e.g. a hypothetical `Num` or `Bool` sigil) — not
   requested, don't generalize preemptively.
 - Changing the `~` twigil's behavior.
