@@ -1029,7 +1029,7 @@ class RakuAST::Resolver {
         return 0 if $alen == 0 || $blen == 0;
 
         my sub changecost(str $ac, str $bc) {
-            my sub issigil($_) { nqp::index('$@%&|', $_) != -1 }
+            my sub issigil($_) { nqp::index('$@%&~#|', $_) != -1 }
 
             $ac eq $bc
               ?? 0

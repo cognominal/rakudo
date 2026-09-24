@@ -8,11 +8,12 @@ do for me," and the rest of the file for "how/why is it built this way."
 
 ## Feature: new fixed-type sigils `~` (Str) and `#` (int)
 
-Status: **Phases 1-2 implemented and passing (§5)** — both sigils work
+Status: **Phases 1-3 implemented and passing (§5)** — both sigils work
 end-to-end (`t/02-rakudo/new-sigil-int.t`, `new-sigil-str.t`, 18/18 each),
 verified against a from-scratch build of this branch run with
-`RAKUDO_RAKUAST=1`. Phases 3-4 (attributes/introspection audit,
-test-suite triage) not started. Branch `new-sigils`.
+`RAKUDO_RAKUAST=1`. Phase 3's attribute/introspection/signature-parameter
+audit found everything already correct. Phase 4 (test-suite triage) not
+started. Branch `new-sigils`.
 
 Target: **Rakudo's RakuAST frontend (`src/Raku/*`) only.** The legacy
 QAST-generating frontend (`src/Perl6/*` — a naming holdover from before the
@@ -423,21 +424,33 @@ tests passing"):
 - Same known gap as Phase 1: `~`-sigiled signature parameters aren't
   confirmed native either.
 
-**Phase 3 — attributes & introspection**
-- First task: audit whether `#x`/`~x` signature parameters are actually
-  native, not just correct-by-value — Phase 1/2 confirmed the latter but not
-  the former (see the known-gap notes on both phases above).
-- `has ~x` / `has #x` — already confirmed working (both test files, "has
-  ~.x"/"has #.x" attribute tests), so this part is done, not just planned.
-- Still open: `.sigil`, `.VAR`, `.perl`/`.raku` round-tripping, and any
-  place that enumerates the sigil character set literally (grep for
-  `'$@%&'`-style string constants beyond the ones found in §2 — there may be
-  more, e.g. in `Metamodel`, MOP introspection, or `core.c` setting
-  sources). Also unaudited: the two cosmetic `'$@%&'`-literal sites found
-  while implementing Phase 1 (an error-message heuristic for common P5-isms
-  at `Grammar.nqp:3517`, and a Levenshtein typo-suggestion cost function at
-  `resolver.rakumod:1032`) — harmless as-is, `~`/`#` just won't get the
-  nicer wording/suggestions those give `$@%&`.
+**Phase 3 — attributes & introspection — DONE**, and it turned out to be
+pure verification: every item audited was already correct, no wiring gap
+found anywhere.
+- Signature-parameter nativeness (the gap both phases flagged): **confirmed
+  native, no fix needed.** `sub f(#x) { #x }; f(99999999999999999999999)`
+  fails with the exact same "Cannot unbox ... bigint into native integer"
+  as `sub f(int $x) {...}` does (a boxed `Int $x` handles it fine) — proof
+  `#x` is a real native slot, not just value-correct. Likewise `sub f(~x =
+  Nil) {...}` fails at runtime with "Cannot unbox a type object (Nil) to a
+  str" — only possible if it's native (a boxed `Str` would just store
+  `Nil`). Minor, unrelated wrinkle noticed along the way: the compile-time
+  "default value will never bind" check that catches `str $x = Nil` /
+  `Str $x = Nil` up front doesn't fire for `~x = Nil` — same eventual
+  failure, just caught at runtime instead of compile time. Cosmetic, not
+  chased further.
+- `has ~x` / `has #x` — confirmed working (both test files' attribute
+  tests).
+- `.sigil` (on a `Parameter`, e.g. `&f.signature.params[0].sigil`), `.VAR`
+  (`.VAR.WHAT` gives `(IntLexRef)`/`(StrLexRef)`, matching native `$`
+  exactly), and `.raku` (round-trips the plain value, same as native `$`)
+  — all confirmed correct with no changes needed.
+- The two cosmetic `'$@%&'`-literal sites (§ above): fixed. `Grammar.nqp`'s
+  P5-ism error-message heuristic and `resolver.rakumod`'s Levenshtein
+  typo-suggestion cost function both now include `~#`, so e.g. `#count`
+  after declaring `$count` gets "Did you mean '$count'?" instead of a
+  bare undeclared-symbol error. `code.rakumod`'s third site was already
+  correct as found (§2) and needed no change.
 
 **Phase 4 — test-suite triage (§0)**
 Run this repo's existing `t/`/spec-style suite, symlink in whatever upstream

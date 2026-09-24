@@ -3521,7 +3521,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
                             if nqp::index('<[{', $nextch) >= 0 {
                                 $/.typed-panic('X::Syntax::Confused', reason => "Use of non-subscript brackets after \"$name\" where postfix is expected; please use whitespace before any arguments")
                             }
-                            elsif nqp::index('$@%&+-/*', $nextch) >= 0 {
+                            elsif nqp::index('$@%&~#+-/*', $nextch) >= 0 {
                                 $/.typed-panic('X::Syntax::Confused', reason => "A list operator such as \"$name\" must have whitespace before its arguments (or use parens)")
                             }
                             else {
