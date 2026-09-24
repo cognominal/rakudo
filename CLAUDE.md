@@ -1,7 +1,10 @@
 # CLAUDE.md — this repo
 
 This file carries design notes for in-progress language changes on this branch,
-for Claude's (and future contributors') use. It is not user documentation.
+for Claude's (and future contributors') use. Sections 0-7 are not user
+documentation. §8 is the exception: a user-facing draft, written the way this
+would eventually read as Raku docs/release notes — see it for "what does this
+do for me," and the rest of the file for "how/why is it built this way."
 
 ## Feature: new fixed-type sigils `~` (Str) and `#` (int)
 
@@ -445,3 +448,128 @@ moving parameterless calls to `->`, not left as an open problem):
   itself; `~`/`#` need a genuinely different branch in `dottyop`/`methodop`
   that means *subscript*, not *dispatch*, so §7's design has to introduce
   that branch deliberately rather than widen the existing character class.
+
+### 8. For users: what this means for your code
+
+*(Draft doc text. Describes the target end state once §5's phases land —
+**nothing in this section is implemented yet**. The `.` subscript sugar and
+`->` method calls it mentions at the end are a separate, later feature (§7),
+not part of `~`/`#` themselves.)*
+
+#### Two new sigils: `~` for strings, `#` for whole numbers
+
+```raku
+my ~name = "Alice";       # always a string
+my #age  = 30;             # always a whole number (native int)
+```
+
+You don't write a type in front of them — the sigil already says what the
+variable holds. That's the whole point: less to type, and the variable's
+type is right there in every place you use it, not just at the declaration.
+
+They behave like ordinary variables otherwise:
+
+```raku
+~name = "Bob";              # reassign, same as any variable
+say "Hello, ~name!";        # interpolates in strings, like $name does
+say #age + 1;                # ordinary arithmetic
+```
+
+`~name` is always a `Str`; `#name` is always a whole number (technically a
+native `int` under the hood — faster, and the only real-world difference you
+should notice is that it can never be undefined; see below).
+
+#### You can't (and don't need to) give them a type
+
+```raku
+my Str ~name = "Alice";     # error: ~ already means Str
+my int #age  = 30;          # error: # already means a whole number
+my Int #age  = 30;          # error: same reason, even for the "boxed" Int
+```
+
+Any of these is a compile-time error, whether the type you wrote agrees with
+the sigil or not — the sigil isn't a shorthand you can override, it's the
+whole declaration. If you need a different type, or you need a variable that
+might be `Nil`/undefined, that's what `$` is for:
+
+```raku
+my Str $name;                # can be undefined, can hold any Str subtype
+my Int $age is rw;           # needs full container behavior? use $
+```
+
+`where` constraints still work, since they don't change the type, just add a
+runtime check:
+
+```raku
+my ~name where *.chars > 0 = "Alice";   # fine
+my ~name where *.chars > 0 = "";         # dies: the where clause fails
+```
+
+#### `#age` defaults to `0`, `~name` defaults to `""` — never undefined
+
+Unlike a plain `$` variable, `~`/`#` variables can't be `Nil` or left
+undefined:
+
+```raku
+my ~s; say ~s.raku;   # ""
+my #n; say #n;          # 0
+```
+
+If your code relies on checking `.defined` to see whether a variable was
+ever set, that check won't do what you expect on a `~`/`#` variable — it's
+always "set," just perhaps to the empty string or zero.
+
+#### Comments now need a space after `#`
+
+This is the one change here that isn't about the new sigils directly, but is
+required by `#` becoming one: a `#` immediately followed by a letter or
+underscore, with **no space**, is now a variable reference, not a comment.
+
+```raku
+# this is still a comment (space after #)
+#this is now a variable reference to #this, not a comment
+#----------------------------------------  # still a comment (not a letter after #)
+```
+
+`#TODO: fix this` is affected (`T` is a letter, so it now looks like a
+variable reference); `#---section---` is not (`-` can't start a variable
+name, so it's still read as a comment). Add a space after `#` and it's
+always a comment again, same as always. Comments starting with
+`` #`(...) ``, `#|`, or `#=` (embedded comments, declarator docs) are
+untouched either way.
+
+#### If you're coming from standard Rakudo
+
+This project doesn't keep old code working unchanged (see §0) — a few things
+that used to compile will now mean something different or won't compile:
+
+- `~word` with no space, where `word` used to be a bareword call you meant
+  to stringify (e.g. `~foo` meaning "call `foo()` and stringify it"), is now
+  always the `~`-sigiled variable named `word`. Write `~ foo` (with a space)
+  or `~(foo)` if you meant the old thing.
+- A comment written as `#word` with no space (a common style for section
+  dividers or disabled code) is now a variable reference, and probably a
+  compile error if you never declared a `#`-sigiled or `~`-sigiled variable
+  by that name. Add a space: `# word`.
+
+Everything else — `$a ~ $b` (concatenation), `~$x` (stringify a variable),
+`~~` (smartmatch), `~=` (concat-assign), and `$~Name`-style slang variables
+— works exactly as before.
+
+#### Coming later (not yet implemented): `.` as a shorthand subscript
+
+Once `~`/`#` exist, a planned follow-up feature will let you chain
+subscripts after a `.` without brackets, using the sigil to tell strings
+from numbers:
+
+```raku
+@a.1.toto.~str.#int
+# will be the same as:
+@a[1]<toto>{~str}[#int]
+```
+
+and calling a method with no arguments will be spelled `->name` instead of
+`.name`, so `.name` can always mean "look up this key" without being
+confused with a method call. None of this exists yet — it's mentioned here
+so the reasoning behind the two sigils above (why they had to be fixed-type,
+native values) makes sense in context.
