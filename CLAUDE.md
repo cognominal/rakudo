@@ -534,6 +534,16 @@ Not part of this feature, but the stated reason it's being done first — record
 it so the design choices above (especially §4.1's `~` resolution) are made
 with this in mind, not discovered to conflict with it later.
 
+**Superseded by `SUBSCRIPT-OPERATOR.md`** (repo root), a full standalone
+spec+plan written once `~`/`#` (this file's actual subject) were done. That
+file corrects a factual error below: `->` is **not** free for repurposing
+as a postfix method-call operator — `src/Raku/Grammar.nqp`'s `token
+postfix:sym«->»` already claims it as a deliberate, hard "obsolete Perl 5
+syntax" error, confirmed directly against a build (`$x->foo` gives
+`===SORRY!=== Unsupported use of -> as postfix...` today). The rest of this
+section is kept as-is for history; read `SUBSCRIPT-OPERATOR.md` for the
+corrected, grounded version before doing any work on this.
+
 **Proposed equivalence:**
 ```
 @a.1.toto.~str.#int  ≡  @a[1]<toto>{~str}[#int]
