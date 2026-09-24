@@ -2745,7 +2745,14 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token prefix:sym<!> { <sym> <!before '!!'> }
 
     token prefix:sym<+>  { <sym> }
-    token prefix:sym<~>  { <sym> }
+    # CLAUDE.md §4.1/§5 Phase 2: `~` is also the str sigil now, and per §4.1's
+    # design decision, `~` directly followed by an identifier-start char (or
+    # a twigil then one — see `token twigil`), with no space, always means
+    # the `~`-sigiled variable, not this prefix operator — `~foo` (was
+    # stringify-a-call) vs `~ foo`/`~(foo)` (still stringify). `~$x`, `~42`,
+    # `~(...)` etc. are unaffected: none of them have an identifier
+    # immediately after a bare `~`.
+    token prefix:sym<~>  { <sym> <!before [ <.ident> | <[.!^:*?=~]> <.alpha> ] > }
     token prefix:sym<->  { <sym> }
     token prefix:sym<−>  { <sym> }
     token prefix:sym<|>  { <sym> }
@@ -3848,11 +3855,17 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # $/ $_ $! $¢
           | $<sigil>=['$'] $<desigilname>=[<[/_!¢]>]
 
-          # $0
-          | <sigil> $<index>=[\d+]                  [<?{ $*IN-DECL }> <.typed-panic('X::Syntax::Variable::Numeric')>]?
+          # $0 -- meaningless for ~/# (no Match-object concept for a
+          # fixed-type native scalar); excluded so `~42` stays prefix-`~`
+          # applied to the literal 42 (stringify) instead of misparsing as
+          # a "~-sigiled 42nd capture" that's always undefined. `#` doesn't
+          # strictly need this exclusion too — comment:sym<#> already keeps
+          # `#42` a comment, so this branch never gets a chance to try it —
+          # but excluding it here as well avoids relying solely on that.
+          | <sigil> <?{ ~$<sigil> ne '~' && ~$<sigil> ne '#' }> $<index>=[\d+]                  [<?{ $*IN-DECL }> <.typed-panic('X::Syntax::Variable::Numeric')>]?
 
-          # $<foo>
-          | <sigil> <?[<]> <postcircumfix>          [<?{ $*IN-DECL }> <.typed-panic('X::Syntax::Variable::Match')>]?
+          # $<foo> -- same reasoning as $0 above.
+          | <sigil> <?{ ~$<sigil> ne '~' && ~$<sigil> ne '#' }> <?[<]> <postcircumfix>          [<?{ $*IN-DECL }> <.typed-panic('X::Syntax::Variable::Match')>]?
 
           # 👍
           | $<desigilname>=<.sigilless-variable>
@@ -3866,9 +3879,17 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
             <?{ !$*IN-DECL }>
             <contextualizer>
 
-          # try last, to allow sublanguages to redefine sigils (like & in regex)
+          # try last, to allow sublanguages to redefine sigils (like & in
+          # regex). Excludes ~/#: this is also how a bare sigil with nothing
+          # meaningful after it (e.g. the `42` in `~42`, once the two
+          # branches above have declined it) becomes Actions.nqp's "anonymous
+          # state variable" — meaningless (and NYI-broken: state can't be
+          # native) for a fixed-type native sigil, and left unexcluded here
+          # it swallows just the `~`, leaving `42` dangling, instead of
+          # `prefix:sym<~>` handling the whole `~42` as stringify(42).
           | {}
             <sigil>
+            <?{ ~$<sigil> ne '~' && ~$<sigil> ne '#' }>
             <!{ $*QSIGIL }>
             <?MARKER('baresigil')>
         ]
@@ -5452,7 +5473,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         ]
     }
 
-    token sigil { <[$@%&#]> }
+    token sigil { <[$@%&#~]> }
 
     proto token twigil {*}
     token twigil:sym<.> { <sym> <?before <alpha>> }
@@ -6343,13 +6364,11 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     # interpolate int variables (#)
     #
     # Deliberately does NOT set $*QSIGIL (unlike s1/a1/h1/f1, which set it to
-    # '$'/'@'/'%'/'&'): setting it to '#' here makes the inner EXPR=.LANG(...,
+    # '$'/'@'/'%'/'&'): setting it to '#' here made the inner EXPR=.LANG(...,
     # 'y=') parse of the interpolated term hang (infinite loop re-attempting
     # the same position) instead of failing or succeeding cleanly — root
-    # cause not fully tracked down, but this sigil is the one new value
-    # $*QSIGIL has ever taken, and it also happens to be the comment
-    # character, so treat this as a real interaction to re-check before
-    # giving `~` (Phase 2) the same treatment.
+    # cause not fully tracked down, so t1 below (Phase 2, `~`) plays it safe
+    # and omits it too rather than assume the hang was specific to '#'.
     role i1 {
         token escape:sym<#> {
             # Unlike $/@/%/&, a literal `#` is extremely common inside
@@ -6369,6 +6388,25 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
 
     # do NOT interpolate int variables
     role i0 { token escape:sym<#> { <!> } }
+
+    # interpolate str variables (~)
+    #
+    # Same $*QSIGIL omission as i1 above (a literal `~` is also common in
+    # ordinary string content — home-dir paths, version approximations —
+    # so avoid the same untracked hang risk rather than assume it's
+    # specific to `#`), and the same "must look like a sigil" guard, for
+    # the same reason `#` needed one (no whitespace-vs-comment convention
+    # to lean on inside a string).
+    role t1 {
+        token escape:sym<~> {
+            <?before '~' [ <.ident> | <[.!^:*?=~]> <.alpha> ] >
+            <!RESTRICTED>
+            <EXPR=.LANG('MAIN', 'EXPR', 'y=')>
+        }
+    }
+
+    # do NOT interpolate str variables
+    role t0 { token escape:sym<~> { <!> } }
 
     # allow interpolated closures ({...})
     role c1 {
@@ -6427,7 +6465,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     }
 
     # base role for qq//, aka "" parsing
-    role qq does b1 does s1 does a1 does h1 does f1 does c1 does i1 {
+    role qq does b1 does s1 does a1 does h1 does f1 does c1 does i1 does t1 {
         token starter { \" }
         token stopper { \" }
         method tweak_q($v)  { self.panic("Too late for :q")  }
@@ -6506,6 +6544,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     method tweak_h($v) { self.apply_tweak($v ?? h1 !! h0) }
     method tweak_s($v) { self.apply_tweak($v ?? s1 !! s0) }
     method tweak_i($v) { self.apply_tweak($v ?? i1 !! i0) }
+    method tweak_t($v) { self.apply_tweak($v ?? t1 !! t0) }
 
     method tweak_o($v) { $v ?? self.apply_tweak(o) !! self }
     method tweak_x($v) { $v ?? self.add-postproc("exec")  !! self }
@@ -6529,6 +6568,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     method tweak_quotewords($v) { self.tweak_ww($v) }
     method tweak_scalar($v)     { self.tweak_s($v)  }
     method tweak_single($v)     { self.tweak_q($v)  }
+    method tweak_str($v)        { self.tweak_t($v)  }
     method tweak_val($v)        { self.tweak_v($v)  }
     method tweak_words($v)      { self.tweak_w($v)  }
 

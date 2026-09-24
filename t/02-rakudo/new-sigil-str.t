@@ -24,7 +24,7 @@ use Test;
 # directly in this file: this file itself must keep parsing under the
 # *current*, unmodified grammar regardless of whether the feature exists yet.
 
-plan 12;
+plan 18;
 
 # `try` keeps a compile-time failure (the expected state today) a normal,
 # reported failure for that one test, instead of aborting the whole file.
@@ -64,13 +64,19 @@ throws-like 'my Str ~s = "a";', Exception,
 throws-like 'my ~s is Str = "a";', Exception,
     'an `is Str` trait on a ~-sigiled declaration is a compile-time error';
 
-# --- `where` still works: it is a runtime refinement, not a type ---
+# --- `where`: a runtime refinement, not a type — but native types don't
+# support subsets in current Rakudo at all yet, `my str $x where ...` dies
+# with "Subsets of native types not yet implemented" regardless of whether
+# the value would satisfy the condition, and ~s inherits that limitation
+# exactly like new-sigil-int.t's #n does. Confirmed by testing the identical
+# `my str $x where ...` form directly: same message, same for both a
+# satisfying and a violating value.
 
-is try-eval('my ~s where *.chars > 0 = "ok"; ~s'), 'ok',
-    'a `where` constraint on ~s is allowed and satisfied';
+throws-like 'my ~s where *.chars > 0 = "ok";', Exception,
+    'a `where` constraint on ~s dies even when satisfied, inheriting the "Subsets of native types not yet implemented" limitation';
 
 throws-like 'my ~s where *.chars > 0 = "";', Exception,
-    'a violated `where` constraint on ~s still dies, same as for $-sigiled variables';
+    'a `where` constraint on ~s dies when violated too (same underlying native-subset limitation, not the condition itself)';
 
 # --- attributes: has ~.x is a public native-str attribute ---
 
@@ -81,5 +87,32 @@ is try-eval('class NewSigilStrAttr { has ~.x = "default" }; NewSigilStrAttr.new(
 
 is try-eval('sub f(~x) { ~x }; f("z")'), 'z',
     'a ~-sigiled signature parameter works the same as a ~-sigiled my variable';
+
+# --- CLAUDE.md §4.1: ~ becoming a sigil must not disturb the existing
+# operator uses of ~ that don't have an identifier directly after a bare ~
+# (only "~identifier, no space" changes meaning — see §4.1/§4.3). These are
+# plain, already-valid syntax (not run through try-eval's EVAL-a-string
+# indirection) so a regression here fails this file's own parse, not just
+# one assertion — the clearest possible signal something broke.
+
+is ~42, '42', '~42 (prefix stringify of a literal) is unaffected';
+is 'a' ~ 'b', 'ab', "'a' ~ 'b' (infix concat, space-delimited) is unaffected";
+ok 5 ~~ Int, '5 ~~ Int (smartmatch, a distinct two-char token) is unaffected';
+{
+    my $x = 'a';
+    $x ~= 'b';
+    is $x, 'ab', '$x ~= "b" (concat-assign, a distinct token) is unaffected';
+}
+is try-eval('sub f() { $~MAIN }; "ok"'), 'ok',
+    '$~MAIN-style twigil use (only reachable after an existing sigil) still parses';
+
+# --- the dropped compatibility case (§4.1/§4.3, accepted breakage): ---
+# `~foo` with no space used to mean "stringify the result of calling foo()";
+# it now always means the ~-sigiled variable named foo, once foo has been
+# declared with that sigil. There is deliberately no test asserting the old
+# meaning still works — that's exactly the behavior §0's policy says to drop.
+
+is try-eval('my ~foo = "hi"; ~foo'), 'hi',
+    'bare ~foo (no space), once declared, reads the ~-sigiled variable — the new, sigil-wins meaning';
 
 # vim: expandtab shiftwidth=4

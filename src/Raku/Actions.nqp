@@ -5444,6 +5444,7 @@ Please use $worry.";
     method escape:sym<@>($/)   { self.attach: $/, $<EXPR>.ast  }
     method escape:sym<%>($/)   { self.attach: $/, $<EXPR>.ast  }
     method escape:sym<&>($/)   { self.attach: $/, $<EXPR>.ast  }
+    method escape:sym<~>($/)   { self.attach: $/, $<EXPR>.ast  }
     method escape:sym<{ }>($/) { self.attach: $/, $<block>.ast }
 
     sub qwatom($node) { Nodify('QuoteWordsAtom').new($node.ast) }

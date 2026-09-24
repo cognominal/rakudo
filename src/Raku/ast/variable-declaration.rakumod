@@ -190,13 +190,21 @@ role RakuAST::ContainerCreator {
     }
 
     # `$` can be native only when an explicit native type is given
-    # (`my int $x`). `#` (CLAUDE.md §1/§3) is *always* native int, by sigil
-    # alone. Both funnel through the same "sigil eq '$'" native-scalar
-    # codegen paths below, so this predicate is what those paths check
-    # instead of a literal `'$'` comparison.
+    # (`my int $x`). `#`/`~` (CLAUDE.md §1/§3) are *always* native (int/str
+    # respectively), by sigil alone. All three funnel through the same
+    # "sigil eq '$'" native-scalar codegen paths below, so this predicate is
+    # what those paths check instead of a literal `'$'` comparison.
     method IMPL-SIGIL-CAN-BE-NATIVE() {
         my str $sigil := self.sigil;
-        $sigil eq '$' || $sigil eq '#'
+        $sigil eq '$' || $sigil eq '#' || $sigil eq '~'
+    }
+
+    # 'int' for `#`, 'str' for `~`, '' for anything else — the native type
+    # name a sigil forces, used both for resolving that type (PERFORM-BEGIN)
+    # and for wording the SigilImpliesType error consistently.
+    method IMPL-SIGIL-NATIVE-TYPE-NAME() {
+        my str $sigil := self.sigil;
+        $sigil eq '#' ?? 'int' !! $sigil eq '~' ?? 'str' !! ''
     }
 
     # The key type of the hash a container creator makes, or NQPMu for a
@@ -759,6 +767,10 @@ class RakuAST::VarDeclaration::Simple
     # expressions.rakumod), so it isn't a substitute for the real thing.
     has Mu $!forced-native-int;
 
+    # Same as $!forced-native-int, but for a `~`-sigiled declaration's
+    # native `str` (CLAUDE.md §5 Phase 2).
+    has Mu $!forced-native-str;
+
     # For a qualified name, the resolution of its leading package when
     # one is lexically visible; the name then anchors there rather than
     # at GLOBAL.
@@ -1089,6 +1101,9 @@ class RakuAST::VarDeclaration::Simple
         # not a bare `int` literal — see that attribute's comment for why.
         return $!forced-native-int if self.sigil eq '#';
 
+        # ~ always means native str (CLAUDE.md §1/§3), same reasoning as #.
+        return $!forced-native-str if self.sigil eq '~';
+
         $!type
             ?? (nqp::istype($!type, RakuAST::Lookup)
                 ?? ($!type.is-resolved
@@ -1163,24 +1178,31 @@ class RakuAST::VarDeclaration::Simple
                RakuAST::Resolver $resolver,
       RakuAST::IMPL::QASTContext $context
     ) {
-        # CLAUDE.md "Feature: new fixed-type sigils": # (and, later, ~)
-        # already fixes the type, so any explicit type (`my int #x`,
-        # `my Int #x`) or `is Type` trait (`my #x is Int`) is an error,
-        # whether or not it agrees with what the sigil already implies.
-        # Checked here, before anything below can overwrite $!type — in
-        # particular, a `where` clause replaces $!type with a synthesized
-        # anonymous subset (see the `$!where` handling further down) even
-        # when the user wrote no explicit type at all, so checking $!type
-        # after that point would misfire on `my #x where * > 0 = 5`.
+        # CLAUDE.md "Feature: new fixed-type sigils": # and ~ already fix
+        # the type, so any explicit type (`my int #x`, `my Int #x`,
+        # `my str ~x`, `my Str ~x`) or `is Type` trait (`my #x is Int`) is
+        # an error, whether or not it agrees with what the sigil already
+        # implies. Checked here, before anything below can overwrite
+        # $!type — in particular, a `where` clause replaces $!type with a
+        # synthesized anonymous subset (see the `$!where` handling further
+        # down) even when the user wrote no explicit type at all, so
+        # checking $!type after that point would misfire on
+        # `my #x where * > 0 = 5`.
         self.add-sorry(
           $resolver.build-exception: 'X::Syntax::Variable::SigilImpliesType',
-            :sigil(self.sigil), :implied('a native int'), :name(self.name)
-        ) if self.sigil eq '#'
+            :sigil(self.sigil),
+            :implied('a native ' ~ self.IMPL-SIGIL-NATIVE-TYPE-NAME),
+            :name(self.name)
+        ) if self.IMPL-SIGIL-NATIVE-TYPE-NAME
           && ($!type || self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE);
 
         if self.sigil eq '#' {
             my $int-resolution := $resolver.resolve-name-constant(RakuAST::Name.from-identifier('int'));
             nqp::bindattr(self, RakuAST::VarDeclaration::Simple, '$!forced-native-int', $int-resolution.compile-time-value);
+        }
+        elsif self.sigil eq '~' {
+            my $str-resolution := $resolver.resolve-name-constant(RakuAST::Name.from-identifier('str'));
+            nqp::bindattr(self, RakuAST::VarDeclaration::Simple, '$!forced-native-str', $str-resolution.compile-time-value);
         }
 
         if self.is-attribute || self.twigil eq '.' {
@@ -1277,15 +1299,16 @@ class RakuAST::VarDeclaration::Simple
 
         my $subset;
         if my $where := $!where {
-            # A #-sigiled declaration is always native int (CLAUDE.md §1/§3),
+            # A #-/~-sigiled declaration is always native (CLAUDE.md §1/§3),
             # never the generic Any/Mu fallback below — otherwise a `where`
             # clause would silently strip its nativeness (the subset becomes
             # $!type, and IMPL-OF-TYPE's forcing only kicks in when $!type is
-            # unset; see IMPL-OF-TYPE and $!forced-native-int).
+            # unset; see IMPL-OF-TYPE and $!forced-native-int/-str).
             my $type;
-            if self.sigil eq '#' {
-                $type := RakuAST::Type::Simple.new(RakuAST::Name.from-identifier('int'));
-                # Set directly from the already-resolved $!forced-native-int
+            my str $native-name := self.IMPL-SIGIL-NATIVE-TYPE-NAME;
+            if $native-name {
+                $type := RakuAST::Type::Simple.new(RakuAST::Name.from-identifier($native-name));
+                # Set directly from the already-resolved $!forced-native-*
                 # rather than relying on to-begin-time to resolve this fresh
                 # node itself: RakuAST::Type::Simple resolves in
                 # PERFORM-PARSE, a parse-time hook that a node built here,
@@ -1294,7 +1317,9 @@ class RakuAST::VarDeclaration::Simple
                 # where-clauses a little further down in this file).
                 $type.set-resolution(
                   RakuAST::Declaration::ResolvedConstant.new(
-                    compile-time-value => $!forced-native-int));
+                    compile-time-value => self.sigil eq '#'
+                      ?? $!forced-native-int
+                      !! $!forced-native-str));
             }
             else {
                 $type := $of-type // self.IMPL-UNWRAP-LIST(self.get-implicit-lookups)[0];
@@ -1525,8 +1550,10 @@ class RakuAST::VarDeclaration::Simple
         # processed during PERFORM-BEGIN, after that early check runs.
         self.add-sorry(
           $resolver.build-exception: 'X::Syntax::Variable::SigilImpliesType',
-            :sigil(self.sigil), :implied('a native int'), :name(self.name)
-        ) if self.sigil eq '#' && self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE;
+            :sigil(self.sigil),
+            :implied('a native ' ~ self.IMPL-SIGIL-NATIVE-TYPE-NAME),
+            :name(self.name)
+        ) if self.IMPL-SIGIL-NATIVE-TYPE-NAME && self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE;
 
         # A bind replaces the declared container, which would discard an
         # array's shape, so a shaped array declaration cannot take a binding
