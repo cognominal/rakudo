@@ -189,6 +189,16 @@ role RakuAST::ContainerCreator {
           !! nqp::null
     }
 
+    # `$` can be native only when an explicit native type is given
+    # (`my int $x`). `#` (CLAUDE.md §1/§3) is *always* native int, by sigil
+    # alone. Both funnel through the same "sigil eq '$'" native-scalar
+    # codegen paths below, so this predicate is what those paths check
+    # instead of a literal `'$'` comparison.
+    method IMPL-SIGIL-CAN-BE-NATIVE() {
+        my str $sigil := self.sigil;
+        $sigil eq '$' || $sigil eq '#'
+    }
+
     # The key type of the hash a container creator makes, or NQPMu for a
     # hash keyed by Str.
     method IMPL-CONTAINER-KEY-TYPE() { NQPMu }
@@ -738,6 +748,17 @@ class RakuAST::VarDeclaration::Simple
     has Mu $!container-initializer;
     has Mu $!package;
 
+    # The properly Raku-blessed native `int` type object (Perl6::Metamodel::
+    # NativeHOW, resolved via the resolver, same as `my int $x` gets) for a
+    # `#`-sigiled declaration, resolved once in PERFORM-BEGIN. IMPL-OF-TYPE
+    # returns this rather than a bare `int` literal: a bareword native-type
+    # literal written directly in this bootstrap-compiled .rakumod resolves
+    # to NQP's own lower-level native (NQPNativeHOW), which lacks `.mro` and
+    # other Raku-level HOW methods that code elsewhere calls on a variable's
+    # declared type (e.g. the literal-assignment type-check in
+    # expressions.rakumod), so it isn't a substitute for the real thing.
+    has Mu $!forced-native-int;
+
     # For a qualified name, the resolution of its leading package when
     # one is lexically visible; the name then anchors there rather than
     # at GLOBAL.
@@ -802,7 +823,7 @@ class RakuAST::VarDeclaration::Simple
             || $!desigilname.is-multi-part
             || self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE;
         my $of := $!where ?? $!type.meta-object !! self.IMPL-OF-TYPE;
-        return '' if self.sigil eq '$' && nqp::objprimspec($of);
+        return '' if self.IMPL-SIGIL-CAN-BE-NATIVE && nqp::objprimspec($of);
         # The assignment emit paths choose their strategy from the QAST
         # name's leading sigil, so the local keeps it. The declared name
         # rides along for debuggability.
@@ -1060,6 +1081,14 @@ class RakuAST::VarDeclaration::Simple
     method IMPL-BIND-TARGETED() { $!bind-targeted }
 
     method IMPL-OF-TYPE() {
+        # # always means native int (CLAUDE.md §1/§3), regardless of
+        # whatever explicit type was (invalidly) written — PERFORM-CHECK
+        # sorries that case separately, so it's fine to just ignore $!type
+        # here rather than let a bogus explicit type reach code-gen. Uses
+        # the properly-resolved $!forced-native-int (see PERFORM-BEGIN),
+        # not a bare `int` literal — see that attribute's comment for why.
+        return $!forced-native-int if self.sigil eq '#';
+
         $!type
             ?? (nqp::istype($!type, RakuAST::Lookup)
                 ?? ($!type.is-resolved
@@ -1134,6 +1163,26 @@ class RakuAST::VarDeclaration::Simple
                RakuAST::Resolver $resolver,
       RakuAST::IMPL::QASTContext $context
     ) {
+        # CLAUDE.md "Feature: new fixed-type sigils": # (and, later, ~)
+        # already fixes the type, so any explicit type (`my int #x`,
+        # `my Int #x`) or `is Type` trait (`my #x is Int`) is an error,
+        # whether or not it agrees with what the sigil already implies.
+        # Checked here, before anything below can overwrite $!type — in
+        # particular, a `where` clause replaces $!type with a synthesized
+        # anonymous subset (see the `$!where` handling further down) even
+        # when the user wrote no explicit type at all, so checking $!type
+        # after that point would misfire on `my #x where * > 0 = 5`.
+        self.add-sorry(
+          $resolver.build-exception: 'X::Syntax::Variable::SigilImpliesType',
+            :sigil(self.sigil), :implied('a native int'), :name(self.name)
+        ) if self.sigil eq '#'
+          && ($!type || self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE);
+
+        if self.sigil eq '#' {
+            my $int-resolution := $resolver.resolve-name-constant(RakuAST::Name.from-identifier('int'));
+            nqp::bindattr(self, RakuAST::VarDeclaration::Simple, '$!forced-native-int', $int-resolution.compile-time-value);
+        }
+
         if self.is-attribute || self.twigil eq '.' {
             my $attribute-package := $resolver.find-attach-target('package');
             if $attribute-package {
@@ -1228,7 +1277,28 @@ class RakuAST::VarDeclaration::Simple
 
         my $subset;
         if my $where := $!where {
-            my $type := $of-type // self.IMPL-UNWRAP-LIST(self.get-implicit-lookups)[0];
+            # A #-sigiled declaration is always native int (CLAUDE.md §1/§3),
+            # never the generic Any/Mu fallback below — otherwise a `where`
+            # clause would silently strip its nativeness (the subset becomes
+            # $!type, and IMPL-OF-TYPE's forcing only kicks in when $!type is
+            # unset; see IMPL-OF-TYPE and $!forced-native-int).
+            my $type;
+            if self.sigil eq '#' {
+                $type := RakuAST::Type::Simple.new(RakuAST::Name.from-identifier('int'));
+                # Set directly from the already-resolved $!forced-native-int
+                # rather than relying on to-begin-time to resolve this fresh
+                # node itself: RakuAST::Type::Simple resolves in
+                # PERFORM-PARSE, a parse-time hook that a node built here,
+                # outside the normal parse, never gets a chance to run
+                # (mirrors the ResolvedConstant pattern used for signature
+                # where-clauses a little further down in this file).
+                $type.set-resolution(
+                  RakuAST::Declaration::ResolvedConstant.new(
+                    compile-time-value => $!forced-native-int));
+            }
+            else {
+                $type := $of-type // self.IMPL-UNWRAP-LIST(self.get-implicit-lookups)[0];
+            }
             # An unnamed subset reports as <anon> in a failed type check,
             # matching the legacy frontend.
             $subset := RakuAST::Type::Subset.new: :name(RakuAST::Name.new), :of($type || RakuAST::Type), :$where;
@@ -1448,6 +1518,16 @@ class RakuAST::VarDeclaration::Simple
             inner => self.IMPL-EXPLICIT-CONTAINER-BASE-TYPE,
         ) if self.IMPL-HAS-CONFLICTING-BASE-TYPE;
 
+        # The `$!type` half of this check lives in PERFORM-BEGIN (before the
+        # where-clause subset synthesis there can overwrite $!type); the
+        # `is Type` trait half has to live here instead, since the trait
+        # that populates IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE is itself
+        # processed during PERFORM-BEGIN, after that early check runs.
+        self.add-sorry(
+          $resolver.build-exception: 'X::Syntax::Variable::SigilImpliesType',
+            :sigil(self.sigil), :implied('a native int'), :name(self.name)
+        ) if self.sigil eq '#' && self.IMPL-HAS-EXPLICIT-CONTAINER-BASE-TYPE;
+
         # A bind replaces the declared container, which would discard an
         # array's shape, so a shaped array declaration cannot take a binding
         # initializer. A keyed hash also sets the shape, but its keys live
@@ -1481,7 +1561,7 @@ class RakuAST::VarDeclaration::Simple
                  || nqp::istype($initializer,RakuAST::Initializer::Bind) {
 
                 my $of := self.IMPL-OF-TYPE;
-                if self.sigil eq '$' && (my int $prim-spec := nqp::objprimspec($of)) && $initializer.is-binding {
+                if self.IMPL-SIGIL-CAN-BE-NATIVE && (my int $prim-spec := nqp::objprimspec($of)) && $initializer.is-binding {
                     self.add-sorry:
                       $resolver.build-exception: 'X::Bind::NativeType',
                             :name(self.name);
@@ -1709,7 +1789,7 @@ class RakuAST::VarDeclaration::Simple
         if $scope eq 'my' && !$!desigilname.is-multi-part {
             # Lexically scoped
             my str $sigil := self.sigil;
-            if $sigil eq '$' && (my int $prim-spec := nqp::objprimspec($of)) {
+            if self.IMPL-SIGIL-CAN-BE-NATIVE && (my int $prim-spec := nqp::objprimspec($of)) {
                 # Natively typed; just declare it.
                 my $qast := QAST::Var.new(
                     :scope($!is-rw ?? 'lexicalref' !! 'lexical'), :decl('var'), :name(self.name),
@@ -1846,7 +1926,7 @@ class RakuAST::VarDeclaration::Simple
         elsif $scope eq 'state' {
             # Lexically scoped state variable
             my str $sigil := self.sigil;
-            if $sigil eq '$' && nqp::objprimspec($of) {
+            if self.IMPL-SIGIL-CAN-BE-NATIVE && nqp::objprimspec($of) {
                 nqp::die("Natively typed state variables not yet implemented");
             }
             elsif $!initializer && $!initializer.is-binding {
@@ -1881,7 +1961,7 @@ class RakuAST::VarDeclaration::Simple
                 !! QAST::Var.new( :$name, :scope<lexical> );
             my $of := self.IMPL-OF-TYPE;
 
-            if $sigil eq '$' && (my int $primspec := nqp::objprimspec($of)) {
+            if self.IMPL-SIGIL-CAN-BE-NATIVE && (my int $primspec := nqp::objprimspec($of)) {
                 # Natively typed value. May need to initialize it to a
                 # default in the absence of an initializer.
 
@@ -2060,7 +2140,7 @@ class RakuAST::VarDeclaration::Simple
                 # Potentially l-value native lookups need a lexicalref.
                 # A lowered declaration is never native, so its scope
                 # stays a plain local.
-                if self.sigil eq '$' && self.scope ne 'our' {
+                if self.IMPL-SIGIL-CAN-BE-NATIVE && self.scope ne 'our' {
                     my $of := self.IMPL-OF-TYPE;
                     if nqp::objprimspec($of) && (!$!is-parameter || !$!is-ro) {
                         $scope := 'lexicalref';

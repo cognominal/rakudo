@@ -581,7 +581,7 @@ role RakuAST::Code
                         # frames to copy. Declare a fresh slot of the same
                         # native type. A write to it stays local to this
                         # compiled code.
-                        if $lexical && (my int $prim-spec := nqp::objprimspec($of)) && $lexical.sigil eq '$' {
+                        if $lexical && (my int $prim-spec := nqp::objprimspec($of)) && $lexical.IMPL-SIGIL-CAN-BE-NATIVE {
                             $context.ensure-sc($of);
                             %seen{$name} := 1;
                             my $slot := QAST::Var.new(

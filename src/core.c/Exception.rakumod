@@ -1923,6 +1923,18 @@ my class X::Syntax::Variable::ConflictingTypes does X::Comp {
     }
 }
 
+# CLAUDE.md "Feature: new fixed-type sigils": a `~`/`#`-sigiled declaration's
+# type is fixed by the sigil alone, so writing any explicit type (matching
+# or not) or an `is Type` trait is always an error, not just a redundancy.
+my class X::Syntax::Variable::SigilImpliesType does X::Syntax {
+    has str $.sigil;
+    has str $.implied;
+    has str $.name;
+    method message() {
+        "Cannot give an explicit type to '$!name': its sigil '$!sigil' already makes it $!implied"
+    }
+}
+
 my class X::Syntax::Augment::WithoutMonkeyTyping does X::Syntax {
     method message() { "augment not allowed without 'use MONKEY-TYPING'" };
 }

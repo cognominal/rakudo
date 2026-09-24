@@ -5432,7 +5432,12 @@ Please use $worry.";
         make self.ints_to_string($<hexint> || $<hexints><hexint>);
     }
 
-    method escape:sym<#>($/) { make ''; }
+    # Shared by two different grammar roles under the same sym: `ww`'s
+    # comment-inside-a-word-list (no $<EXPR>, stays a no-op) and `i1`'s
+    # #-sigil interpolation (CLAUDE.md §5 Phase 1), which does capture one.
+    method escape:sym<#>($/) {
+        $<EXPR> ?? self.attach($/, $<EXPR>.ast) !! make '';
+    }
 
     method escape:sym<\\>($/)  { make $<item>.ast }
     method escape:sym<$>($/)   { self.attach: $/, $<EXPR>.ast  }

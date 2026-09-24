@@ -136,7 +136,7 @@ class RakuAST::Var::Lexical
           # meta-object is a VM null rather than a usable value.
           # Decline, and the lookup is compiled instead.
           && !(nqp::istype(self.resolution, RakuAST::VarDeclaration::Simple)
-                && self.resolution.sigil eq '$'
+                && self.resolution.IMPL-SIGIL-CAN-BE-NATIVE
                 && nqp::objprimspec(self.resolution.IMPL-OF-TYPE))
     }
 

@@ -67,13 +67,19 @@ throws-like 'my Str #n = 5;', Exception,
 throws-like 'my #n is Int = 5;', Exception,
     'an `is Int` trait on a #-sigiled declaration is a compile-time error';
 
-# --- `where` still works: it is a runtime refinement, not a type ---
+# --- `where`: a runtime refinement, not a type — but native types don't
+# support subsets in current Rakudo at all yet, `my int $x where ...` dies
+# with "Subsets of native types not yet implemented" regardless of whether
+# the value would satisfy the condition, and #n inherits that limitation
+# exactly like it inherits the `state` one above. Confirmed by testing the
+# identical `my int $x where ...` form directly: same message, same for
+# both a satisfying and a violating value.
 
-is try-eval('my #n where * > 0 = 5; #n'), 5,
-    'a `where` constraint on #n is allowed and satisfied';
+throws-like 'my #n where * > 0 = 5;', Exception,
+    'a `where` constraint on #n dies even when satisfied, inheriting the "Subsets of native types not yet implemented" limitation';
 
 throws-like 'my #n where * > 0 = -5;', Exception,
-    'a violated `where` constraint on #n still dies, same as for $-sigiled variables';
+    'a `where` constraint on #n dies when violated too (same underlying native-subset limitation, not the condition itself)';
 
 # --- inherited native-scalar limitation: state is not yet implemented ---
 

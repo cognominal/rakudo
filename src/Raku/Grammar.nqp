@@ -5840,12 +5840,17 @@ Rakudo significantly on *every* run."
 
     # CLAUDE.md §4.2/§5 Phase 1: `#` is also the int sigil now, so a bare
     # `#` immediately followed by an identifier-start character (no space)
-    # is a `#`-sigiled variable, not a comment — `#foo` vs `# foo`. Anything
-    # else after `#` (whitespace, EOL, or a character that can't start a
-    # `desigilname` anyway, e.g. `#123`, `#!/...`, `#----`) still reads as
+    # is a `#`-sigiled variable, not a comment — `#foo` vs `# foo`. A twigil
+    # is also possible between the sigil and the name (`#.foo`, `#!foo`,
+    # etc. — see `token twigil`), so `#` followed by a twigil char *and then*
+    # an identifier-start char is excluded too (`#!/usr/bin/env raku` still
+    # reads as a comment: `/` right after `!` isn't a valid twigil-name
+    # start, matching `token twigil`'s own `<?before <alpha>>` requirement).
+    # Anything else after `#` (whitespace, EOL, or a character that can't
+    # start a `desigilname` either way, e.g. `#123`, `#----`) still reads as
     # an ordinary comment.
     token comment:sym<#> {
-       '#' [ <?before \s> || <!before <.ident>> ]
+       '#' [ <?before \s> || <!before [ <.ident> | <[.!^:*?=~]> <.alpha> ] > ]
        {} \N*
     }
 
@@ -6335,6 +6340,36 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     # do NOT interpolate function calls
     role f0 { token escape:sym<&> { <!> } }
 
+    # interpolate int variables (#)
+    #
+    # Deliberately does NOT set $*QSIGIL (unlike s1/a1/h1/f1, which set it to
+    # '$'/'@'/'%'/'&'): setting it to '#' here makes the inner EXPR=.LANG(...,
+    # 'y=') parse of the interpolated term hang (infinite loop re-attempting
+    # the same position) instead of failing or succeeding cleanly — root
+    # cause not fully tracked down, but this sigil is the one new value
+    # $*QSIGIL has ever taken, and it also happens to be the comment
+    # character, so treat this as a real interaction to re-check before
+    # giving `~` (Phase 2) the same treatment.
+    role i1 {
+        token escape:sym<#> {
+            # Unlike $/@/%/&, a literal `#` is extremely common inside
+            # ordinary string content (TAP output, prose, etc.), and there's
+            # no whitespace-vs-comment gate to lean on here the way
+            # comment:sym<#> has outside strings — so require the same
+            # "looks like a sigil" shape (identifier, or twigil+identifier,
+            # directly after #, no space) before even trying to interpolate,
+            # or every "# some words" in an existing string becomes a parse
+            # attempt (this broke loading lib/Test.rakumod's own "# Skipped:
+            # $reason" TAP line before this guard was added).
+            <?before '#' [ <.ident> | <[.!^:*?=~]> <.alpha> ] >
+            <!RESTRICTED>
+            <EXPR=.LANG('MAIN', 'EXPR', 'y=')>
+        }
+    }
+
+    # do NOT interpolate int variables
+    role i0 { token escape:sym<#> { <!> } }
+
     # allow interpolated closures ({...})
     role c1 {
         token escape:sym<{ }> {
@@ -6392,7 +6427,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     }
 
     # base role for qq//, aka "" parsing
-    role qq does b1 does s1 does a1 does h1 does f1 does c1 {
+    role qq does b1 does s1 does a1 does h1 does f1 does c1 does i1 {
         token starter { \" }
         token stopper { \" }
         method tweak_q($v)  { self.panic("Too late for :q")  }
@@ -6470,6 +6505,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     method tweak_f($v) { self.apply_tweak($v ?? f1 !! f0) }
     method tweak_h($v) { self.apply_tweak($v ?? h1 !! h0) }
     method tweak_s($v) { self.apply_tweak($v ?? s1 !! s0) }
+    method tweak_i($v) { self.apply_tweak($v ?? i1 !! i0) }
 
     method tweak_o($v) { $v ?? self.apply_tweak(o) !! self }
     method tweak_x($v) { $v ?? self.add-postproc("exec")  !! self }
@@ -6489,6 +6525,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
     method tweak_function($v)   { self.tweak_f($v)  }
     method tweak_hash($v)       { self.tweak_h($v)  }
     method tweak_heredoc($v)    { self.tweak_to($v) }
+    method tweak_int($v)        { self.tweak_i($v)  }
     method tweak_quotewords($v) { self.tweak_ww($v) }
     method tweak_scalar($v)     { self.tweak_s($v)  }
     method tweak_single($v)     { self.tweak_q($v)  }

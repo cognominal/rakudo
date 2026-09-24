@@ -49,6 +49,13 @@ this spec had `~` map to boxed `Str` and framed the `~`/boxed-`Str` vs.
 matches `#` in being native. See §3.1 for why dropping the
 `Scalar`-container/reference machinery is fine for both sigils, not just `#`.
 
+**Mnemonics** (worth repeating in user docs and when explaining the choice):
+- `~` → string: Raku already uses `~` for everything string-flavored — infix
+  `~` is string concatenation (join), prefix `~` is string coercion, `~~`/`~=`
+  follow suit. A `~`-sigiled variable is "the string one."
+- `#` → integer: `#` conventionally denotes a number/count ("item #3",
+  "#items"), i.e. an integer. A `#`-sigiled variable is "the number one."
+
 Because the sigil *is* the type, an explicit type in the declaration is
 redundant at best and contradictory at worst, so it's a compile-time error to
 write one (`my Str ~name`, `my int #name`, and `my Int #name` are all
@@ -233,6 +240,21 @@ depend on or should be designed around. The argument for dropping the
 `Scalar` container isn't "natives literally can't be aliased," it's "the
 subscript use case never asks for aliasing in the first place," so there's
 nothing lost by choosing the simpler representation.
+
+Two further observations back this up:
+- **References are for composite data.** In practice, taking a reference
+  (aliasing, `is rw`, binding) matters mostly for composite data structures —
+  arrays, hashes, objects — where sharing the structure is the point. A
+  string or an integer used as a key/index is a scalar *value*; there's
+  rarely a reason to share its storage, so losing reference semantics on
+  `~`/`#` costs essentially nothing.
+- **Native `int` range is enough for indices.** `#` being native `int` rather
+  than arbitrary-precision `Int` looks like a restriction, but an index
+  larger than a native int is essentially never used for subscripting — a
+  dense array that big can't exist in memory. The only realistic exception
+  is sparse ("holey") arrays with huge, mostly-empty index ranges; code that
+  needs that can keep using a `$` variable with explicit brackets
+  (`@a[$big]`).
 
 If some future use of `~`/`#` outside subscripting turns out to genuinely
 need alias/rebind/rw-parameter semantics, that's a sign it should have been
@@ -466,6 +488,10 @@ my #age  = 30;             # always a whole number (native int)
 You don't write a type in front of them — the sigil already says what the
 variable holds. That's the whole point: less to type, and the variable's
 type is right there in every place you use it, not just at the declaration.
+
+Easy to remember: `~` is already Raku's string operator (`$a ~ $b` joins
+strings, `~$x` makes a string), and `#` is the usual shorthand for "number"
+(as in "item #3") — so `~` for strings, `#` for whole numbers.
 
 They behave like ordinary variables otherwise:
 
