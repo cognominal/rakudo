@@ -5452,7 +5452,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         ]
     }
 
-    token sigil { <[$@%&]> }
+    token sigil { <[$@%&#]> }
 
     proto token twigil {*}
     token twigil:sym<.> { <sym> <?before <alpha>> }
@@ -5838,8 +5838,15 @@ Rakudo significantly on *every* run."
 
     proto token comment {*}
 
+    # CLAUDE.md §4.2/§5 Phase 1: `#` is also the int sigil now, so a bare
+    # `#` immediately followed by an identifier-start character (no space)
+    # is a `#`-sigiled variable, not a comment — `#foo` vs `# foo`. Anything
+    # else after `#` (whitespace, EOL, or a character that can't start a
+    # `desigilname` anyway, e.g. `#123`, `#!/...`, `#----`) still reads as
+    # an ordinary comment.
     token comment:sym<#> {
-       '#' {} \N*
+       '#' [ <?before \s> || <!before <.ident>> ]
+       {} \N*
     }
 
     token comment:sym<#`(...)> {
