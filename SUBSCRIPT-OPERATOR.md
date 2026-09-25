@@ -7,15 +7,18 @@ sections 2 and 4 in particular contain corrections to the original design
 idea that only came from actually testing things against a real build, and
 skipping them will send you down paths already found to be dead ends.
 
-Status: **Phases 1-3 done and passing.** `.1`
+Status: **All of §5's phases (1-4) done.** `.1`
 (`t/02-rakudo/dot-subscript-numeric.t`, 7/7), `.~expr`/`.#expr`
 (`dot-subscript-sigil.t`, 8/8), and `.name`/`->name` gated by a new `.rak`
 file extension (`dot-subscript-name.t`, 11/11 — see §5 Phase 3 for the LTM
 pitfall hit and fixed along the way, and the "`.new`/`.Str`/... must become
 `->new`/`->Str`/... in `.rak` mode" consequence). `.rakumod`/`.raku`/`.pm6`/
 `.nqp` files, including all of `src/core.c/`, are completely unaffected —
-only files ending in `.rak` get the new dotty semantics. Phase 4 (roast
-triage redux) not started yet. Branch `new-sigils`.
+only files ending in `.rak` get the new dotty semantics; Phase 4's roast
+re-sweep confirms this empirically (607/607 non-missing `t/spectest.data.6.c`
+files still compile clean, zero regressions — see §5 Phase 4 for why the
+gate design makes this the expected outcome, not a lucky one). Branch
+`new-sigils`.
 
 ## 0. Relationship to this branch's other work
 
@@ -501,15 +504,37 @@ completely unaffected — only a new `.rak` extension gets the new behavior):
   Phase 2's `.#`/`.~` sugar, and two `.raku`-extension regression cases
   (`.new`/`.bar` and `->bar`) confirming the unflagged path is untouched.
 
-**Phase 4 — test-suite triage, redux**
-Same shape as CLAUDE.md's Phase 4 (§5 there): once Phase 3 lands, re-run
-the roast syntax-check sweep (methodology fully documented in CLAUDE.md's
-Phase 4 writeup — clone roast to `t/spec`, syntax-check every file listed
-in `t/spectest.data.6.c` against the new build, cross-reference failures)
-and remove whatever newly breaks. Expect this to be a *larger* removal than
-Phase 4 there — `.method` (parameterless) is an extremely common pattern,
-far more common than unspaced `#comment`s were — so budget for that rather
-than being surprised by it.
+**Phase 4 — test-suite triage, redux — DONE. Zero regressions found.**
+This bullet originally predicted a *larger* removal from `t/spectest.data.6.c`
+than CLAUDE.md's Phase 4 saw, reasoning that parameterless `.method` is an
+extremely common pattern — far more common than unspaced `#comment`s. That
+prediction was written before §4.1's resolution landed and turned out to be
+moot once it did: because Phase 3 is gated entirely behind the **new `.rak`
+file extension** rather than being a language-wide change to `.method`
+parsing, no roast file — none of them use `.rak` — is affected at all. The
+premise of "this will break a lot of existing `.method` call sites" only
+applied to the abandoned whole-language design; the shipped design
+specifically exists to avoid that cost (§4.1).
+
+Confirmed empirically rather than just assumed: reused CLAUDE.md's Phase 4
+methodology exactly (same `t/spec` roast clone, still in place; same
+`rakudo-m -Ilib -I t/spec/packages -c <file>` syntax-check, 8-way parallel,
+15s timeout) against every file `t/spectest.data.6.c` currently lists (649
+entries, post the 505 already removed there) run through this branch's
+post-Phase-3 build. Result: **607 compiled clean, 0 failed, 0 timed out**,
+and 42 "missing" (listed in the data file but absent from this shallow
+`t/spec` clone — a pre-existing roast-drift artifact unrelated to this
+branch, not a regression: none of the 42 names relate to dotty/`->`/method
+syntax). No lines removed from `t/spectest.data.6.c` — there is nothing to
+remove.
+
+This result is exactly what §4.1's file-extension-gate design should
+produce, so it also serves as an end-to-end confirmation that the gate is
+airtight: `$*NEW-DOTTY-SEMANTICS` genuinely never turns on for a `.t` file,
+`postfix:sym«->»`'s new branch never fires outside `.rak`, and the
+`postfixish` restructuring (the `||`-based reordering added to fix Phase
+3's LTM pitfall) didn't accidentally change parsing for anyone not opted
+in.
 
 ## 6. Explicitly out of scope for this pass
 
