@@ -225,6 +225,22 @@ class Perl6::Compiler is HLL::Compiler {
             %options<doc> := 'Text';
         }
 
+        # SUBSCRIPT-OPERATOR.md §4.1/§5 Phase 3: the .rak file-extension
+        # gate for the new dotty semantics needs the source filename, but
+        # NQP's own HLL::Compiler.evalfiles never threads the file argument
+        # into %adverbs<source-name> (confirmed: it computes an equivalent
+        # value into a *local* lexical, $?FILES, used only for its own
+        # error-reporting, not passed on) — so %*OPTIONS<source-name> is
+        # simply absent by the time Actions.nqp's comp-unit-prologue runs
+        # for a plain `raku foo.rak` invocation. @args[0] here, before the
+        # iterator shift below consumes the script name for @*ARGS, is that
+        # same filename — capture it into %options<source-name> ourselves,
+        # entirely within this shared compiler-driver class (this method
+        # runs regardless of RAKUDO_RAKUAST; it is not frontend-specific).
+        unless nqp::defined(%options<e>) || nqp::defined(%options<source-name>) {
+            %options<source-name> := @args[0] if nqp::elems(@args);
+        }
+
         my $argiter := nqp::iterator(@args);
         nqp::shift($argiter) if $argiter && !nqp::defined(%options<e>);
         nqp::bindhllsym('Raku', '$!ARGITER', $argiter);

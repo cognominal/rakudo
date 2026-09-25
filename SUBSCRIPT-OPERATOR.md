@@ -7,17 +7,15 @@ sections 2 and 4 in particular contain corrections to the original design
 idea that only came from actually testing things against a real build, and
 skipping them will send you down paths already found to be dead ends.
 
-Status: **Phases 1-2 done and passing** — `.1` (`t/02-rakudo/dot-subscript-
-numeric.t`, 7/7) and `.~expr`/`.#expr` (`dot-subscript-sigil.t`, 8/8), both
-the confirmed-low-risk two-thirds of the feature (§4.4). §4.1's open
-question is **resolved**: gate `.name` → `<name>`/`->name` by a new `.rak`
-file extension rather than changing `.rakumod`/`.raku` language-wide — see
-§4.1 for why (the naive whole-language version is infeasible: ~8,700
-candidate call sites in `src/core.c/` alone, self-hosting risk) and exactly
-how (a new dynamic variable, set from the source filename in the existing
-`comp-unit-prologue` hook, checked in `methodop`). Phase 3 not started yet.
-Branch
-`new-sigils`.
+Status: **Phases 1-3 done and passing.** `.1`
+(`t/02-rakudo/dot-subscript-numeric.t`, 7/7), `.~expr`/`.#expr`
+(`dot-subscript-sigil.t`, 8/8), and `.name`/`->name` gated by a new `.rak`
+file extension (`dot-subscript-name.t`, 11/11 — see §5 Phase 3 for the LTM
+pitfall hit and fixed along the way, and the "`.new`/`.Str`/... must become
+`->new`/`->Str`/... in `.rak` mode" consequence). `.rakumod`/`.raku`/`.pm6`/
+`.nqp` files, including all of `src/core.c/`, are completely unaffected —
+only files ending in `.rak` get the new dotty semantics. Phase 4 (roast
+triage redux) not started yet. Branch `new-sigils`.
 
 ## 0. Relationship to this branch's other work
 
@@ -393,56 +391,115 @@ What shipped, matching the plan closely:
   <variable>` branch) is untouched — `$` was never added to the new
   alternative's lookahead, so `%h.$key` still means what it meant before.
 
-**Phase 3 — `.name` → `<name>`, `->name` for method calls, gated by `.rak`**
-Per §4.1's resolution: this is a **file-extension-gated** grammar change,
-not a language-wide one — `.rakumod`/`.raku`/`.pm6`/`.nqp` files, including
-all of `src/core.c/`, are completely unaffected; only a new `.rak`
-extension gets the new behavior. Concretely:
-- In `method comp-unit-prologue` (`src/Raku/Actions.nqp`, ~line 420, right
-  next to where `$*LANGUAGE-REVISION` gets set from `nqp::getcomp('Raku').
-  language_revision` at ~line 450): read `%*COMPILING<%?OPTIONS><source-
-  name>` and set a new dynamic variable — e.g. `$*NEW-DOTTY-SEMANTICS :=
-  1` — when it ends in `.rak`. Confirm exactly how `-e`/STDIN-piped code
-  (no filename at all) should behave here — recommend it stays *off*
-  (traditional semantics) absent an actual `.rak` file, since there's no
-  extension to opt in with.
-  Watch also for how *this* compilation-unit variable should (or
-  shouldn't) propagate into `EVAL`, nested compilation units, and modules
-  a `.rak` file `use`s that are themselves `.rakumod` — the natural
-  behavior is "each file's own grammar interpretation depends on its own
-  extension," i.e. this variable should be a fresh per-comp-unit value, not
-  something that leaks from a `.rak` file into a `.rakumod` module it
-  loads or vice versa. Confirm `$*LANGUAGE-REVISION`'s own scoping behaves
-  this way already (it should, being the existing precedent for exactly
-  this pattern) and mirror it.
-- `methodop`'s `<longname>` branch (~2652, §2): the no-args fallback
-  (~2669, `<!{ $*QSIGIL }> <?>`) needs to check `$*NEW-DOTTY-SEMANTICS`
-  before unconditionally succeeding for a bare name with nothing after it
-  — when the flag is set, that position is declined here and claimed by
-  `<name>` (associative-postcircumfix) sugar instead. Reference
-  `postcircumfix:sym<ang>`'s (§2, ~2540) AST construction for what `<name>`
-  (as a literal quoted-word key, not a full angle-quote parse) needs to
-  build — likely reusable near-verbatim from `dotty-sigil-index`'s pattern
-  (§5 Phase 2), swapping the `<variable>` match for a literal identifier.
-- `token postfix:sym«->»` (~2709-2729, §2): its body needs to branch on
-  `$*NEW-DOTTY-SEMANTICS` too — when unset, keep the existing obsolete-
-  syntax panics completely unchanged (so `.rakumod`/`.raku` files retain
-  today's Perl-5-migration diagnostic verbatim); when set, parse `->name`,
-  `->name(args)`, `->name: args` (recommend routing all three through the
-  *existing* `dottyop`/`methodop` machinery, per §3, rather than
-  duplicating it). Decide `->[`/`->{`/`->(`'s fate under the flag
-  separately — nothing in §1's motivating example needs them repurposed;
-  leaving them erroring even in `.rak` files (adjusting only the message)
-  is the conservative default absent a reason to do more.
-- Tests: this needs actual `.rak` **files** on disk (not `EVAL`'d strings
-  the way every test so far in this project has worked, since the whole
-  point is behavior keyed by the file's own extension) — check how this
-  project's test harness handles running a script file directly vs.
-  `EVAL`, and how the harness would need to name/place a `.rak` fixture
-  file for a test to pick up. Cover every §4.2 boundary case (`.name()`,
-  `.name:`, chained dotty) from inside a `.rak` fixture, plus a `.rakumod`/
-  `.raku` regression file confirming the *unflagged* path (including the
-  existing `->` obsolete-syntax error) is byte-for-byte unchanged.
+**Phase 3 — `.name` → `<name>`, `->name` for method calls, gated by `.rak` — DONE.**
+`t/02-rakudo/dot-subscript-name.t` is 11/11, verified against a rebuild of
+this branch (`RAKUDO_RAKUAST=1`), with a full regression sweep (all four
+prior test files still green — 18/18, 18/18, 7/7, 8/8 — `use Test` still
+loads and its `# SKIP` TAP-comment output is unaffected, both frontends'
+general sanity checks pass).
+
+What actually shipped, per §4.1's file-extension-gated resolution
+(`.rakumod`/`.raku`/`.pm6`/`.nqp`, including all of `src/core.c/`, are
+completely unaffected — only a new `.rak` extension gets the new behavior):
+- **Plumbing (two files outside `src/Raku/`):** `src/Perl6/Compiler.nqp`'s
+  `command_eval` (the *shared* compiler-driver class, used by both
+  frontends) now captures `@args[0]` into `%options<source-name>` when
+  running a plain file (not `-e`) and `source-name` isn't already set — NQP
+  itself computes an equivalent value in `HLL::Compiler.evalfiles` but never
+  threads it into `%adverbs`, so Rakudo has to capture it independently.
+  `comp-unit-prologue` in `src/Raku/Actions.nqp` then reads
+  `%*COMPILING<%?OPTIONS><source-name>` and sets a new dynamic variable,
+  `$*NEW-DOTTY-SEMANTICS`, to `1` iff the name ends in `.rak`, else `0`.
+  `-e`/STDIN-piped code has no filename, so it always gets `0` (traditional
+  semantics) — confirmed via diagnostic. `token comp-unit` in
+  `src/Raku/Grammar.nqp` declares `:my $*NEW-DOTTY-SEMANTICS;` right next to
+  `$*LANGUAGE-REVISION`, giving it the same "fresh per-compilation-unit
+  value, doesn't leak across `use`/`EVAL` boundaries" scoping for free —
+  confirmed empirically (a `.rak` file `use`-ing a `.rakumod` module keeps
+  the module's own `.` semantics unaffected, and vice versa).
+- **`.name` → `<name>` sugar:** a new standalone token,
+  `token dotty-name-sugar { <identifier> <!before <.unspace>? '('> <!before
+  <.unspace>? ':' \s> }`, matches a bare identifier only when nothing
+  args-shaped follows it. Its action builds the exact node
+  `postcircumfix:sym<ang>` builds for a single bareword key —
+  `RakuAST::Postcircumfix::LiteralHashIndex` wrapping a hand-built
+  `RakuAST::QuotedString`/`RakuAST::StrLiteral` pair (the same pattern
+  already used elsewhere in Actions.nqp for `colonpair-variable`'s
+  synthesized key, found by grep rather than reasoned out from scratch).
+- **A genuine LTM pitfall, not present in Phases 1-2:** the natural way to
+  wire this in — add `| <?{ $*NEW-DOTTY-SEMANTICS }> '.' <OPER=dotty-name-
+  sugar>` as one more `|`-alternative in `postfixish`, next to the existing
+  ones — compiles, and even *passes* for plain reads (`%h.toto`) and
+  chaining (`%h.toto.1`). But it silently loses to `<OPER=dotty>` (the real
+  method-call path) whenever a *subsequent* infix-shaped token follows —
+  `%h.toto = 42` and `%h.toto != 5` both fell through to a real (and
+  failing) method-call dispatch on `Hash`, even though the plain-read case
+  worked. Root cause: Phase 1/2's sugars are never actually ambiguous with
+  `<OPER=dotty>` at the grammar level — their leading character (a digit,
+  `~`, `#`) can never start `methodop`'s `<longname>`/`<variable>`/`<quote>`
+  branches, so NQP's LTM has no real tie to break. `.name` **is** a genuine
+  textual overlap with `<OPER=dotty>`'s longname branch (same literal
+  characters could go either way), and empirically, LTM's tie-break between
+  two `|`-alternatives of equal matched length, one of them gated by a
+  runtime `<?{ ... }>` assertion, is not reliably won by declaration order —
+  it appears to depend on what character follows the shared prefix, which
+  is exactly backwards from what the feature needs (only the trailing
+  syntax, not the sugar itself, should decide the winner). **Fix:** stopped
+  relying on LTM to arbitrate. Restructured `postfixish`'s postfix
+  alternation as `[ || <?{ $*NEW-DOTTY-SEMANTICS }> '.' <OPER=dotty-name-
+  sugar> || [ existing `|`-alternatives unchanged ] ]` — `||` is
+  first-match/procedural, not LTM, so the sugar is tried deterministically
+  first whenever the flag is set, and its own two negative lookaheads (not
+  LTM) are what make it correctly decline for `.name(args)`/`.name: args`,
+  falling through to the second `||` branch (the original LTM group,
+  `<OPER=dotty>` included) unaffected. This is the one piece of this phase
+  that needed an actual build-and-observe iteration to find; the fix is
+  small but the *symptom* (works for reads, breaks specifically when
+  followed by an operator) is a trap worth flagging for anyone touching
+  this again.
+- **`->name` real method call:** `token postfix:sym«->»` gained a new
+  first-tried alternative, `<?{ $*NEW-DOTTY-SEMANTICS }> <.unspace>?
+  <methodop(Mu)>` — deliberately `<methodop(Mu)>` directly, not the broader
+  `<dottyop>`, because `dottyop`'s non-`methodop` branches would also let
+  `->[`/`->{` through as aliases for `.[`/`.{` postcircumfix access, which
+  stays erroring under the flag per the original plan (confirmed:
+  `@a->[0]` still hits the pre-existing "Unsupported use of ->[] as postfix
+  dereferencer" obsolete-syntax panic in `.rak` mode, unchanged). `Mu` is
+  passed as `$*DOTTY` to match plain `.`'s (falsy) dispatcher behavior, not
+  `.^`/`.?`/etc.'s. The corresponding action,
+  `method postfix:sym«->»($/) { self.attach: $/, $<methodop>.ast; }`,
+  forwards whatever AST `methodop` already built — mirroring exactly how
+  `dottyop`'s own action forwards `$<methodop>.ast` for plain `.name(...)`
+  calls, so `->name`, `->name(args)`, and `->name: args` all work via the
+  *existing* method-call machinery, not a duplicate of it. When the flag is
+  unset, this new alternative is never attempted (the `<?{ ... }>` guard
+  fails first), so `.rakumod`/`.raku` files keep today's obsolete-syntax
+  panics byte-for-byte, confirmed via regression test.
+- **A design consequence worth flagging explicitly, not a bug:** because
+  `.name` (no parens) now *always* means `<name>` in `.rak` mode, this
+  includes every idiomatic parameterless call written that way —
+  `Foo.new`, `$x.Str`, `$x.chars`, `$x.gist`, etc. — not just
+  user-defined methods. `.rak`-mode code must write `Foo->new`, `$x->Str`,
+  and so on for all of these; `.name` is unconditionally the subscript
+  sugar there, with no special-casing for "well-known" method names. This
+  surprised the first draft of the test fixtures (`Foo.new` and `->Str`
+  both had to be fixed to `Foo->new`/`$x->Str` before the test suite
+  passed) and is worth remembering as the single biggest ergonomic cost of
+  opting a file into `.rak` mode — everything written the traditional way
+  needs `.new`/`.Str`/`.chars`/... changed to `->new`/`->Str`/`->chars`/...
+  wherever it's a bare, parameterless call.
+- Tests: `t/02-rakudo/dot-subscript-name.t` writes real `.rak`/`.raku`
+  fixture files to a per-run temp directory and runs each one in a
+  subprocess with `RAKUDO_RAKUAST=1` explicitly set in the child's
+  environment (mirroring the existing subprocess pattern in
+  `t/02-rakudo/compiler-frontend-id.t`), since this phase's behavior is
+  keyed off the compilation unit's own file extension — something `EVAL`
+  has no notion of and every earlier test file in this project could
+  therefore avoid. Covers: bare-read and assignment sugar, sugar/`<name>`
+  value identity, `->name` real calls, `.name(args)`/`.name: args` staying
+  real calls, `->[0]` staying an obsolete-syntax error, chaining with
+  Phase 2's `.#`/`.~` sugar, and two `.raku`-extension regression cases
+  (`.new`/`.bar` and `->bar`) confirming the unflagged path is untouched.
 
 **Phase 4 — test-suite triage, redux**
 Same shape as CLAUDE.md's Phase 4 (§5 there): once Phase 3 lands, re-run

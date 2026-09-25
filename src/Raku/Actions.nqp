@@ -425,6 +425,20 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         # Be ready to report locations in the source.
         $*ORIGIN-SOURCE := Nodify('Origin::Source').new(:orig($/.target()));
 
+        # SUBSCRIPT-OPERATOR.md §4.1/§5 Phase 3: a `.rak`-extension source
+        # file gets the new dotty semantics (bare `.name`, no args, means
+        # `<name>`; `->name` for an actual parameterless method call).
+        # Every other extension (.raku, .rakumod, .pm6, .nqp, or no
+        # filename at all, e.g. -e/STDIN) keeps today's behavior exactly —
+        # see Perl6::Compiler.command_eval for how source-name gets
+        # populated for a plain file argument (NQP's own HLL::Compiler
+        # never does this itself).
+        my str $source-name := %*COMPILING<%?OPTIONS><source-name> // '';
+        $*NEW-DOTTY-SEMANTICS := (nqp::chars($source-name) >= 4
+          && nqp::eqat($source-name, '.rak', nqp::chars($source-name) - 4))
+          ?? 1
+          !! 0;
+
         # Set up the base resolver
         my %OPTIONS       := %*OPTIONS;
         my $context       := %OPTIONS<outer_ctx>;
@@ -2115,6 +2129,28 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         self.attach: $/, $sigil eq '~'
           ?? Nodify('Postcircumfix::HashIndex').new(:index($semilist))
           !! Nodify('Postcircumfix::ArrayIndex').new(:index($semilist));
+    }
+
+    # SUBSCRIPT-OPERATOR.md §5 Phase 3: `.identifier` (parameterless, `.rak`
+    # mode only — see postfixish/dotty-name-sugar in Grammar.nqp) is sugar
+    # for `<identifier>`, i.e. the exact same node postcircumfix:sym<ang>
+    # builds for a single bareword, just with a hand-built literal string
+    # instead of a parsed <nibble>.
+    method dotty-name-sugar($/) {
+        self.attach: $/, Nodify('Postcircumfix::LiteralHashIndex').new(
+          :index(Nodify('QuotedString').new(
+            :segments([Nodify('StrLiteral').new(~$<identifier>)])
+          ))
+        );
+    }
+
+    # SUBSCRIPT-OPERATOR.md §5 Phase 3: in `.rak`-mode source, ->identifier
+    # is a real parameterless-method call, forwarding straight to whatever
+    # AST <methodop> already built (see postfix:sym«->» in Grammar.nqp).
+    # Outside `.rak` mode this action is never reached: every other
+    # alternative in that token panics via .obs before Actions ever runs.
+    method postfix:sym«->»($/) {
+        self.attach: $/, $<methodop>.ast;
     }
 
     method postcircumfix:sym<{ }>($/) {

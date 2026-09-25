@@ -1347,6 +1347,9 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         :my @*ORIGIN-NESTINGS := [];  # handling nested origins
         :my $*R;               # current RakuAST::Resolver::xxx object
         :my $*LANGUAGE-REVISION;  # language revision of this compilation unit
+        # SUBSCRIPT-OPERATOR.md §4.1/§5 Phase 3: set from this file's
+        # extension in comp-unit-prologue (0 for everything but .rak).
+        :my $*NEW-DOTTY-SEMANTICS;
         :my $*LITERALS;        # current RakuAST::LiteralBuilder object
         :my &*DD;              # debug helper to dd()
         {
@@ -2478,6 +2481,21 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         [
           ['.' <.unspace>?]? <postfix-prefix-meta-operator> <.unspace>?]?
         [
+          # SUBSCRIPT-OPERATOR.md §5 Phase 3: tried first via `||` (not the
+          # `|`/LTM alternation below) because a bare `.identifier` is a
+          # genuine textual overlap with <OPER=dotty>'s longname-method-call
+          # branch (unlike the digit/sigil sugars below, whose leading
+          # character can never start a method name) — LTM's tie-break
+          # between two equal-length, code-assertion-gated alternatives
+          # isn't reliable, so the choice is made explicit and procedural.
+          # Fails (via dotty-name-sugar's own lookaheads) for
+          # `.identifier(args)`/`.identifier: args`, falling through to the
+          # `||` branch below and its ordinary <OPER=dotty> method-call
+          # path, unaffected. False outside `.rak` mode, so this never
+          # matches at all there.
+          || <?{ $*NEW-DOTTY-SEMANTICS }> '.' <OPER=dotty-name-sugar>
+
+          || [
           | <OPER=postfix>
 
           # dotted form of postfix operator (non-wordy only)
@@ -2515,6 +2533,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
               || <?alpha> <.missing: "dot on method call">
               || <.malformed: "postfix">
             ]
+        ]
         ]
         { $*LEFTSIGIL := '@'; }
     }
@@ -2631,6 +2650,20 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token dotty-sigil-index {
         :dba('sigil-driven postfix subscript')
         <variable>
+    }
+
+    # SUBSCRIPT-OPERATOR.md §5 Phase 3: `.identifier` (no following `(` or
+    # adverbial `: args`) sugar for `<identifier>`, gated by
+    # $*NEW-DOTTY-SEMANTICS (see postfixish above). The lookaheads make this
+    # token itself fail to match `.identifier(args)`/`.identifier: args`, so
+    # postfixish's alternation falls through to the ordinary <OPER=dotty>
+    # method-call path for those instead — this sugar only ever fires for
+    # the parameterless shape.
+    token dotty-name-sugar {
+        :dba('bareword postfix subscript sugar')
+        <identifier>
+        <!before <.unspace>? '('>
+        <!before <.unspace>? ':' \s>
     }
 
 #-------------------------------------------------------------------------------
@@ -2753,6 +2786,17 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token postfix:sym«->» {
         <sym>
         [
+          # SUBSCRIPT-OPERATOR.md §5 Phase 3: in `.rak`-mode source, `->name`
+          # is a real parameterless-method call (the replacement for `.name`,
+          # freed up by Phase 3's `.name` -> <name> sugar). Tried first, but
+          # <methodop> only matches a longname/quote/$@&-sigiled-variable
+          # shape, so `->[`/`->{`/`->(` fall through to the existing
+          # obsolete-syntax branches below even in `.rak` mode (deliberately
+          # left erroring, per the spec).
+          | <?{ $*NEW-DOTTY-SEMANTICS }>
+            <.unspace>?
+            <methodop(Mu)>
+
           | $<bracket>=['[' | '{' | '(' ]
             {
                 my str $open := ~$<bracket>;
