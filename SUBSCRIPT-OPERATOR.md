@@ -9,9 +9,14 @@ skipping them will send you down paths already found to be dead ends.
 
 Status: **Phases 1-2 done and passing** — `.1` (`t/02-rakudo/dot-subscript-
 numeric.t`, 7/7) and `.~expr`/`.#expr` (`dot-subscript-sigil.t`, 8/8), both
-the confirmed-low-risk two-thirds of the feature (§4.4). Phase 3 (`.name` →
-`<name>`, `->name`) not started — **do not start it without first resolving
-§4.1's open question**; that's the hard, high-risk part. Branch
+the confirmed-low-risk two-thirds of the feature (§4.4). §4.1's open
+question is **resolved**: gate `.name` → `<name>`/`->name` by a new `.rak`
+file extension rather than changing `.rakumod`/`.raku` language-wide — see
+§4.1 for why (the naive whole-language version is infeasible: ~8,700
+candidate call sites in `src/core.c/` alone, self-hosting risk) and exactly
+how (a new dynamic variable, set from the source filename in the existing
+`comp-unit-prologue` hook, checked in `methodop`). Phase 3 not started yet.
+Branch
 `new-sigils`.
 
 ## 0. Relationship to this branch's other work
@@ -199,38 +204,67 @@ handling, not just adding an alternative).
 
 ## 4. Risks, ordered by severity
 
-### 4.1 `.name` → `->name`: high, and *not* narrowly scoped
+### 4.1 `.name` → `->name`: RESOLVED — gate it by file extension, not language-wide
 
-This is the change that actually breaks running code, not just a design
-nicety. Every existing parameterless method call in this project's own
-source (`src/**/*.rakumod`, `src/**/*.nqp`), in the setting (`src/core.c/`),
-and in any test file, needs rewriting from `.name` to `->name` — there is no
-way to make this an additive change; `.name` bare is the *only* existing
-spelling, and after this change it means something else entirely (`<name>`,
-which for a plain object is likely to be a hash-subscript on something that
-isn't a `Positional`/`Associative`, i.e. a loud runtime error most of the
-time — this is not a silent-wrong-answer kind of break, at least, but it is
-a *build-breaking* one: Rakudo's own compiler source calls parameterless
-methods constantly).
+The problem, restated precisely: `.name` bare is the *only* existing
+spelling for a parameterless method call, used **constantly** — a rough
+regex sweep of `src/core.c/` alone (the standard library, 162 files) found
+on the order of 8,700 candidate bare-dot-identifier spots. A whole-language
+change to what `.name` means is therefore not "big," it's **infeasible to
+do correctly by hand in one pass**: text search can't reliably distinguish
+a genuine bare call from `.name` followed by `:adverb(args)`, from a
+multi-line arg list, from an indirect `."$name"()` call, from meta-
+programming that builds method names as strings — the only fully reliable
+way to know is to have a parser walk the code, which is circular (you'd
+want the *new* grammar to tell you what it flags, which requires the change
+to already exist). And a missed site doesn't fail to compile — it silently
+becomes a subscript attempt at runtime, usually erroring somewhere far from
+the actual mistake. Since `src/core.c/` is the compiler's own standard
+library (self-hosted), a mistake here risks breaking the ability to build
+at all, or producing a build that "succeeds" but is broken pervasively.
 
-This means: **this change cannot land in isolation.** Either the whole
-compiler source tree gets a mechanical `.name` → `->name` pass for every
-confirmed-parameterless call site (large, mechanical, but must be exactly
-right — a missed site doesn't fail to compile, it silently becomes a
-subscript attempt, likely erroring at a confusing point far from the actual
-mistake), or `.name` needs to *stay* a method call when the underlying
-object doesn't have a `Positional`/`Associative`-shaped subscript, deferred
-to runtime the way legacy Raku's `FALLBACK` mechanism would (§7 of CLAUDE.md
-originally floated this and then talked itself out of it in favor of the
-`->` move; re-reading that reasoning is worth doing before re-opening it,
-but the scale of the mechanical rewrite found here is a real point in favor
-of reconsidering).
+**The resolution: don't change what `.name` means language-wide at all.**
+Gate the new behavior by the **source file's extension** — a new `.rak`
+extension gets the new semantics (`.name` bare → `<name>`, `->name` for a
+real parameterless call); the existing `.raku`/`.rakumod`/`.pm6`/`.nqp`
+files keep today's behavior untouched, permanently. This means:
+- **Zero rewriting of `src/core.c/` or anything else existing.** Those
+  files keep their current extension, so the flag is simply off for them —
+  no risk to the standard library or the self-hosting build.
+- A `.rak` file can still call everything in the standard library fine — it
+  just spells a parameterless call `->foo` instead of `.foo`. The *method*
+  being called, defined in an unaffected `.rakumod` file, doesn't know or
+  care how its caller spelled the call; only the caller's own file's
+  grammar interpretation changes.
+- This is **not** the "no compatibility gating" policy from CLAUDE.md §0
+  being violated — that policy is about not preserving *old meanings of the
+  same file's syntax* for compatibility's sake. This is different: a new
+  extension is a new, separate opt-in surface, not two meanings coexisting
+  for one spelling in one file. `.rak` files fully embrace the breaking
+  change (§0's spirit); `.rakumod` files are simply a different, unrelated
+  file type that this feature doesn't touch.
 
-**Recommend resolving this open question — mechanical rewrite vs. runtime
-fallback — explicitly, in writing, before starting implementation**,
-because the two choices lead to almost entirely different Phase 3 work
-(§5) and it's not a decision this document should make unilaterally on
-behalf of whoever actually does the work.
+**How, concretely — confirmed against this codebase, not just asserted:**
+- `%*COMPILING<%?OPTIONS><source-name>` already holds the path of the file
+  currently being compiled (confirmed: read elsewhere in `Actions.nqp`, e.g.
+  around line 929).
+- `method comp-unit-prologue` in `Actions.nqp` (~line 420) is the existing
+  per-compilation-unit setup hook — it's *already* where `$*LANGUAGE-
+  REVISION` gets established (~line 450), the same "one dynamic variable,
+  set once per file, checked at specific grammar decision points" pattern
+  this needs, just keyed off the filename's extension instead of a `use
+  v6.x` pragma.
+- Add a new dynamic variable (e.g. `$*NEW-DOTTY-SEMANTICS`) set in
+  `comp-unit-prologue` based on whether `source-name` ends in `.rak`.
+  `methodop`'s no-args branch (§2, ~line 2669 as of this branch's HEAD)
+  checks it to decide whether a bare `.name` (no args, no `:`-adverb-args)
+  stays a method call or becomes `<name>` sugar instead.
+- This is comparable in scope to Phases 1-2 (§5) — one new dynamic
+  variable, one new check at one existing decision point — not a new
+  category of risk. The `->` postfix-token conflict (§2's correction, the
+  existing Perl-5-migration obsolete-error) still needs resolving
+  separately and is unaffected by this — it still needs its body replaced,
+  just now only reachable/meaningful when compiling a `.rak` file.
 
 ### 4.2 `.name` grammar change touches the single most common postfix form
 
@@ -359,40 +393,56 @@ What shipped, matching the plan closely:
   <variable>` branch) is untouched — `$` was never added to the new
   alternative's lookahead, so `%h.$key` still means what it meant before.
 
-**Phase 3 — `.name` → `<name>`, `->name` for method calls (the hard part)**
-- **Do not start this phase without first resolving §4.1's open question**
-  (mechanical source rewrite vs. a runtime `FALLBACK`-style mechanism).
-  Whichever is chosen reshapes this phase's steps substantially.
-- If mechanical rewrite: budget real time for finding every parameterless
-  `.name` call site across `src/`, converting each to `->name`, and
-  re-running this project's existing test suite (`t/02-rakudo/`, plus
-  whatever subset of roast CLAUDE.md's Phase 4 left in `t/spectest.data.
-  6.c`) to catch anything missed — a missed site is a silent behavior
-  change, not a compile error, so test coverage carries real weight here.
-- Grammar changes, either way:
-  - `methodop`'s `<longname>` branch (~2652, §2): the no-args fallback
-    (~2669, `<!{ $*QSIGIL }> <?>`) needs to stop unconditionally succeeding
-    for a bare name with nothing after it — that's the position `<name>`
-    (associative-postcircumfix) sugar needs to claim instead. Reference
-    `postcircumfix:sym<ang>`'s (§2, ~2540) AST construction for what
-    `<name>` (as a literal quoted-word key, not a full angle-quote parse)
-    needs to build.
-  - `token postfix:sym«->»` (~2709-2729, §2): replace its body. Currently
-    it unconditionally panics for bare `->` and for `->[`/`->{`/`->(`
-    (deliberately, as an obsolete-syntax check) — the new body needs to
-    parse `->name`, `->name(args)`, `->name: args` (recommend routing all
-    three through the *existing* `dottyop`/`methodop` machinery, per §3,
-    rather than duplicating it) and needs an explicit decision on what
-    happens to `->[`/`->{`/`->(` specifically — do those *also* get
-    repurposed (e.g. as alternate spellings of `.[`/`.{`/`.(`?), or do they
-    keep erroring? Nothing in §1's motivating example needs them; leaving
-    them erroring (just adjusting the message since the "or whitespace to
-    delimit a pointy block" advice remains accurate) is the conservative
-    default absent a reason to do more.
-- Tests: every §4.2 boundary case (`.name()`, `.name:`, chained dotty),
-  plus a representative sample of "does the rest of this project still
-  build and run its own test suite" — this phase is exactly the kind of
-  wide-reaching change CLAUDE.md's Phase 1/2 postmortems warn about (§4.5).
+**Phase 3 — `.name` → `<name>`, `->name` for method calls, gated by `.rak`**
+Per §4.1's resolution: this is a **file-extension-gated** grammar change,
+not a language-wide one — `.rakumod`/`.raku`/`.pm6`/`.nqp` files, including
+all of `src/core.c/`, are completely unaffected; only a new `.rak`
+extension gets the new behavior. Concretely:
+- In `method comp-unit-prologue` (`src/Raku/Actions.nqp`, ~line 420, right
+  next to where `$*LANGUAGE-REVISION` gets set from `nqp::getcomp('Raku').
+  language_revision` at ~line 450): read `%*COMPILING<%?OPTIONS><source-
+  name>` and set a new dynamic variable — e.g. `$*NEW-DOTTY-SEMANTICS :=
+  1` — when it ends in `.rak`. Confirm exactly how `-e`/STDIN-piped code
+  (no filename at all) should behave here — recommend it stays *off*
+  (traditional semantics) absent an actual `.rak` file, since there's no
+  extension to opt in with.
+  Watch also for how *this* compilation-unit variable should (or
+  shouldn't) propagate into `EVAL`, nested compilation units, and modules
+  a `.rak` file `use`s that are themselves `.rakumod` — the natural
+  behavior is "each file's own grammar interpretation depends on its own
+  extension," i.e. this variable should be a fresh per-comp-unit value, not
+  something that leaks from a `.rak` file into a `.rakumod` module it
+  loads or vice versa. Confirm `$*LANGUAGE-REVISION`'s own scoping behaves
+  this way already (it should, being the existing precedent for exactly
+  this pattern) and mirror it.
+- `methodop`'s `<longname>` branch (~2652, §2): the no-args fallback
+  (~2669, `<!{ $*QSIGIL }> <?>`) needs to check `$*NEW-DOTTY-SEMANTICS`
+  before unconditionally succeeding for a bare name with nothing after it
+  — when the flag is set, that position is declined here and claimed by
+  `<name>` (associative-postcircumfix) sugar instead. Reference
+  `postcircumfix:sym<ang>`'s (§2, ~2540) AST construction for what `<name>`
+  (as a literal quoted-word key, not a full angle-quote parse) needs to
+  build — likely reusable near-verbatim from `dotty-sigil-index`'s pattern
+  (§5 Phase 2), swapping the `<variable>` match for a literal identifier.
+- `token postfix:sym«->»` (~2709-2729, §2): its body needs to branch on
+  `$*NEW-DOTTY-SEMANTICS` too — when unset, keep the existing obsolete-
+  syntax panics completely unchanged (so `.rakumod`/`.raku` files retain
+  today's Perl-5-migration diagnostic verbatim); when set, parse `->name`,
+  `->name(args)`, `->name: args` (recommend routing all three through the
+  *existing* `dottyop`/`methodop` machinery, per §3, rather than
+  duplicating it). Decide `->[`/`->{`/`->(`'s fate under the flag
+  separately — nothing in §1's motivating example needs them repurposed;
+  leaving them erroring even in `.rak` files (adjusting only the message)
+  is the conservative default absent a reason to do more.
+- Tests: this needs actual `.rak` **files** on disk (not `EVAL`'d strings
+  the way every test so far in this project has worked, since the whole
+  point is behavior keyed by the file's own extension) — check how this
+  project's test harness handles running a script file directly vs.
+  `EVAL`, and how the harness would need to name/place a `.rak` fixture
+  file for a test to pick up. Cover every §4.2 boundary case (`.name()`,
+  `.name:`, chained dotty) from inside a `.rak` fixture, plus a `.rakumod`/
+  `.raku` regression file confirming the *unflagged* path (including the
+  existing `->` obsolete-syntax error) is byte-for-byte unchanged.
 
 **Phase 4 — test-suite triage, redux**
 Same shape as CLAUDE.md's Phase 4 (§5 there): once Phase 3 lands, re-run
