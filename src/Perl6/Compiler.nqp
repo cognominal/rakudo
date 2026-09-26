@@ -225,6 +225,16 @@ class Perl6::Compiler is HLL::Compiler {
             %options<doc> := 'Text';
         }
 
+        # Capture the source filename for the .rak extension gate.
+        # NQP's own HLL::Compiler.evalfiles never threads the file argument
+        # into %adverbs<source-name>, so Actions.nqp's comp-unit-prologue
+        # would otherwise have no access to it. @args[0] here, before the
+        # iterator shift below consumes the script name for @*ARGS, is that
+        # same filename — capture it into %options<source-name> ourselves.
+        unless nqp::defined(%options<e>) || nqp::defined(%options<source-name>) {
+            %options<source-name> := @args[0] if nqp::elems(@args);
+        }
+
         my $argiter := nqp::iterator(@args);
         nqp::shift($argiter) if $argiter && !nqp::defined(%options<e>);
         nqp::bindhllsym('Raku', '$!ARGITER', $argiter);

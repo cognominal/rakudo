@@ -1,0 +1,81 @@
+use Test;
+
+plan 9;
+
+# ---------------------------------------------------------------------------
+# Basic output redirection with `>` — all equivalent forms from PLAN/RAKFILE.md
+# The redirection operator must directly touch the filename (no space after >).
+# The filename can be a naked string, a quoted string, or a scalar variable.
+# ---------------------------------------------------------------------------
+
+# 1. Naked string content + naked string filename
+{
+    say foo >test1.txt;
+    ok 'test1.txt'.IO.e, '1: file was created';
+    is 'test1.txt'.IO.slurp.trim, 'foo', '1: naked content + naked filename';
+    'test1.txt'.IO.unlink;
+}
+
+# 2. Quoted string content + naked string filename
+{
+    say 'foo' >test2.txt;
+    is 'test2.txt'.IO.slurp.trim, 'foo', '2: quoted content + naked filename';
+    'test2.txt'.IO.unlink;
+}
+
+# 3. Variable content + naked string filename
+{
+    my $foo = 'foo';
+    say $foo >test3.txt;
+    is 'test3.txt'.IO.slurp.trim, 'foo', '3: variable content + naked filename';
+    'test3.txt'.IO.unlink;
+}
+
+# 4. Naked string content + quoted string filename
+{
+    say foo >'test4.txt';
+    is 'test4.txt'.IO.slurp.trim, 'foo', '4: naked content + quoted filename';
+    'test4.txt'.IO.unlink;
+}
+
+# 5. Quoted string content + quoted string filename
+{
+    say 'foo' >'test5.txt';
+    is 'test5.txt'.IO.slurp.trim, 'foo', '5: quoted content + quoted filename';
+    'test5.txt'.IO.unlink;
+}
+
+# 6. Variable content + quoted string filename
+{
+    my $foo = 'foo';
+    say $foo >'test6.txt';
+    is 'test6.txt'.IO.slurp.trim, 'foo', '6: variable content + quoted filename';
+    'test6.txt'.IO.unlink;
+}
+
+# 7. Naked string content + scalar variable filename
+{
+    my $file = 'test7.txt';
+    say foo >$file;
+    is $file.IO.slurp.trim, 'foo', '7: naked content + scalar variable filename';
+    $file.IO.unlink;
+}
+
+# 8. Quoted string content + scalar variable filename
+{
+    my $file = 'test8.txt';
+    say 'foo' >$file;
+    is $file.IO.slurp.trim, 'foo', '8: quoted content + scalar variable filename';
+    $file.IO.unlink;
+}
+
+# 9. Variable content + scalar variable filename
+{
+    my $foo  = 'foo';
+    my $file = 'test9.txt';
+    say $foo >$file;
+    is $file.IO.slurp.trim, 'foo', '9: variable content + scalar variable filename';
+    $file.IO.unlink;
+}
+
+done-testing;

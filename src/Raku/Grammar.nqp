@@ -964,6 +964,13 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token block-with     { with}
     token block-without  { without}
 
+    # Helper: true if the current position in the target is whitespace
+    method after-ws() {
+        self.pos() >= nqp::chars(self.target())
+          || nqp::ordat(self.target(), self.pos()) == 32
+          || nqp::ordat(self.target(), self.pos()) == 9
+    }
+
     token constraint-where { where}
 
     token enum-BigEndian         { BigEndian}
@@ -1347,6 +1354,8 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         :my @*ORIGIN-NESTINGS := [];  # handling nested origins
         :my $*R;               # current RakuAST::Resolver::xxx object
         :my $*LANGUAGE-REVISION;  # language revision of this compilation unit
+        # Set from this file's extension in comp-unit-prologue (1 for .rak, 0 otherwise).
+        :my $*RAK-SEMANTICS;
         :my $*LITERALS;        # current RakuAST::LiteralBuilder object
         :my &*DD;              # debug helper to dd()
         {
@@ -1459,6 +1468,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           | <EXPR>
             :dba('statement end')
             [
+              || <?{ $*RAK-SEMANTICS }> <statement-mod-redir>
               || <?MARKED('end-statement')>
               || :dba('statement modifier')
                  <.ws>
@@ -1940,6 +1950,35 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     }
     rule statement-mod-loop:sym<while> {
         <.modifier-while><.kok> <modifier-expr('while')>
+    }
+
+#-------------------------------------------------------------------------------
+# Redirection statement modifier (rak syntax only)
+
+    token statement-mod-redir {
+        <.ws>
+        '>' <?{ !self.after-ws() }> <redir-filename>
+    }
+
+    token redir-filename {
+        || <redir-naked-filename>
+        || <redir-quoted-filename>
+        || <redir-var-filename>
+    }
+
+    token redir-naked-filename {
+        # A filename/path starting with alpha, /, ~, ./, or ../
+        # (no globbing for now).
+        || '/' <[a..zA..Z_.]> <[a..zA..Z0..9_./\-]>*
+        || <[a..zA..Z_]> <[a..zA..Z0..9_./\-]>*
+    }
+
+    token redir-quoted-filename {
+        \' (<-[']>*) \'
+    }
+
+    token redir-var-filename {
+        '$' <identifier>
     }
 
 #-------------------------------------------------------------------------------
@@ -2978,7 +3017,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token infix:sym«>=»     { <sym> }
     token infix:sym«≥»      { <sym> }
     token infix:sym«<»      { <sym> }
-    token infix:sym«>»      { <sym> }
+    token infix:sym«>»      { <sym> <?{ !$*RAK-SEMANTICS || self.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), self.pos()) == 32 }> }
     token infix:sym«=:=»    { <sym> }
     token infix:sym<===>    { <sym> }
     token infix:sym<⩶>      { <sym> }
@@ -3311,6 +3350,16 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     }
 
     token term:sym<colonpair> { :my $*COLONPAIR-AS-TERM := 1; <colonpair> }
+
+    # In rak mode ($*RAK-SEMANTICS), a bare identifier is a naked string
+    # literal (not a function call), unless it looks like a number.
+    token term:sym<rak-string> {
+        <?{ $*RAK-SEMANTICS }>
+        <identifier>
+        <!before '('>
+        <?{ !self.after-ws() || !nqp::istype($<identifier>.ast, self.Nodify('Name')) }>
+        {}
+    }
 
     token term:sym<variable> {
         <variable>
