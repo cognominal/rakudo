@@ -270,6 +270,70 @@ an explicitly-typed `$` variable (`my Str $x` / `my Int $x`) instead — `~`/
 `#` are not meant to be general-purpose replacements for typed `$`
 variables, just the fixed-type, subscript-driving pair described in §1.
 
+#### 3.2 Empirical JIT benefit: `#i` vs `Int $i`
+
+§3.1's case for native-over-boxed is about semantics (aliasing isn't
+needed). This is the separate, measurable performance case, benchmarked
+against a build of this branch (`RAKUDO_RAKUAST=1`, MoarVM backend, default
+JIT-enabled settings) rather than just asserted:
+
+```raku
+my $t0 = now;
+my #sum = 0;               # or: my Int $sum = 0;
+for ^30_000_000 { #sum = #sum + 1; }   # or: $sum = $sum + 1;
+say now - $t0;
+```
+
+| variable form         | wall time (30M increments) |
+|------------------------|----------------------------|
+| `#sum` (this feature)  | ~0.034s                    |
+| `my int $sum` (existing, explicit) | ~0.036s       |
+| `my Int $sum` (boxed)  | ~0.45s                     |
+
+`#sum` and the pre-existing `my int $sum` land within noise of each other
+— direct confirmation, at the performance level and not just by reading the
+implementation (§2), that `#`'s native lowering is genuinely the same code
+path as an explicit `int` declaration, not a lookalike with its own
+overhead. Against boxed `Int`, native is **~13x faster** in this loop.
+
+That gap is specifically a JIT effect, not just an interpreter-speed
+difference — rerunning both with the JIT switched off
+(`MVM_JIT_DISABLE=1`) narrows it to ~7x (native: ~0.20s, boxed: ~1.44s).
+The JIT accelerates the native form far more than the boxed one (~5.8x vs
+~3.1x speedup from turning JIT on at all), which matches what's actually
+different between the two representations:
+
+- **No container indirection.** `#sum` is a raw native lexical slot (§2 —
+  `IMPL-CONTAINER` never creates a `Scalar` for a native `$of`); `Int $sum`
+  is a `Scalar` container holding a separate boxed object, so every read/
+  write is one more pointer hop even before touching the value itself.
+- **No per-operation allocation.** `#sum + 1` on a native is a machine
+  add producing another machine word. `$sum + 1` on boxed `Int` allocates a
+  new `Int` object for the result (Raku `Int` is immutable and arbitrary-
+  precision) — 30 million allocations of short-lived objects the GC then
+  has to reclaim, which shows up as real wall-clock cost, not just a
+  rounding error.
+- **No overflow/representation branch.** Boxed `Int` arithmetic has to
+  decide, on every operation, whether the result still fits the fast
+  fixnum representation or must promote to a bignum — a check (and
+  occasional promotion cost) a native `int`'s fixed-width machine op never
+  needs.
+- **JIT/register allocation works better on a value with no boxing to see
+  through.** The JIT can keep a native local in a machine register across
+  loop iterations and emit a tight native add; a boxed value forces it to
+  keep unboxing/reboxing (or at best speculate and guard against the box's
+  shape not changing), which is inherently more work to optimize down to
+  the same instruction sequence — consistent with the JIT narrowing rather
+  than widening the boxed side's disadvantage above.
+
+Caveats, stated plainly rather than glossed over: this is one microbenchmark
+(a tight increment loop), not a benchmark suite, and its exact ratios will
+vary with loop shape, MoarVM version, and machine. It's also `#`/`Int`-
+specific — `~` vs boxed `Str` wasn't separately benchmarked here, though the
+same underlying mechanism (no container, no per-op allocation) predicts a
+comparable-magnitude gap for string-building-in-a-loop-style code, just not
+independently confirmed the way the integer case now is.
+
 ### 4. Risks, ordered by severity
 
 #### 4.1 `~` collides with existing operator uses of `~` — low, by policy (§0)
