@@ -245,6 +245,8 @@ src/vm/jvm/CompUnit/Repository/JavaRuntime.rakumod)@
 src/vm/js/CompUnit/Repository/FileSystemWithRecording.rakumod
 src/vm/js/CompUnit/Repository/NodeJs.rakumod)@
 src/core.c/Slang.rakumod
+src/core.c/REPL-COMPLETIONS.rakumod
+src/core.c/REPL-INSPECTOR.rakumod
 src/core.c/REPL.rakumod
 @if(backend==js
 src/core.c/WrappedJSObject.rakumod)@

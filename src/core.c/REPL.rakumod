@@ -194,7 +194,7 @@ do {
     }
 
     class REPL {
-        also does Completions;
+        also does REPL::Completions::Advanced;
 
         has Mu $.compiler;
         has Bool $!multi-line-enabled;
@@ -439,6 +439,21 @@ do {
 
         method interactive_prompt($index) { "[$index] > " }
 
+        method get-effective-prompt($index, $code?) {
+            my $prompt = %*ENV<PROMPT_INDICATOR>;
+            if %*ENV<PROMPT_COMMAND> -> $cmd {
+                try {
+                    $prompt = self.compiler.eval($cmd, :outer_ctx($!save_ctx));
+                    CATCH { default { } }
+                }
+            }
+            if $code.defined && $code.chars {
+                my $cont = %*ENV<PROMPT_MULTILINE_INDICATOR> // '* ';
+                return $cont;
+            }
+            ($prompt // self.interactive_prompt($index)).Str
+        }
+
         method repl-loop(:$no-exit, *%adverbs) {
             my int $stopped;     # did we press CTRL-c just now?
             my $previous-evals := IterationBuffer.new;  # previous values
@@ -541,6 +556,8 @@ do {
             $*MAIN_CTX := nqp::ctxcaller(nqp::ctx());
             $*CTXSAVE := 0;
         }
+
+        method save-ctx() { $!save_ctx }
 
         method input-incomplete(Mu $value --> Bool:D) {
             nqp::hllbool(nqp::can($value, 'WHERE'))

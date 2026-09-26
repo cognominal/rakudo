@@ -434,10 +434,27 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         # populated for a plain file argument (NQP's own HLL::Compiler
         # never does this itself).
         my str $source-name := %*COMPILING<%?OPTIONS><source-name> // '';
-        $*NEW-DOTTY-SEMANTICS := (nqp::chars($source-name) >= 4
-          && nqp::eqat($source-name, '.rak', nqp::chars($source-name) - 4))
-          ?? 1
-          !! 0;
+        my int $name-len := nqp::chars($source-name);
+        my int $is-real-file := $name-len
+          && !nqp::eqat($source-name, '-', 0);
+
+        # Check for .rak extension: the last 4 chars are exactly '.rak'.
+        # This naturally excludes .raku (5 chars), .rakumod (7 chars), etc.
+        my int $is-rak := $name-len >= 4
+          && nqp::eqat($source-name, '.rak', $name-len - 4);
+
+        if $is-rak {
+            $*NEW-DOTTY-SEMANTICS := 1;
+        }
+        elsif $is-real-file {
+            $*NEW-DOTTY-SEMANTICS := 0;
+        }
+        elsif nqp::getenvhash<RAKU_RAK_MODE> {
+            $*NEW-DOTTY-SEMANTICS := 1;
+        }
+        else {
+            $*NEW-DOTTY-SEMANTICS := 0;
+        }
 
         # Set up the base resolver
         my %OPTIONS       := %*OPTIONS;
