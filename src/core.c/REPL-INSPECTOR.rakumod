@@ -16,11 +16,18 @@ class REPL::DataInspector {
                    Int :$max-items = $!max-items) returns Str {
         return '<max-depth>' if $depth >= $max-depth;
 
-        my $is-assoc = $value.^can('AT-KEY') && $value.^can('keys');
-        my $is-pos   = $value.^can('AT-POS') && $value.^can('elems');
-        # Refine: exclude things that are strictly Positional (like Array)
-        # from being detected as associative just because they have AT-KEY.
-        if $is-assoc && $value ~~ Positional {
+        # Use role checks first (accurate for standard types like Hash, Array).
+        # Fall back to .^can for types like Match that implement the
+        # interface without doing the role.
+        my $is-assoc = $value ~~ Associative
+          || !($value ~~ Numeric)
+             && $value.^can('AT-KEY') && $value.^can('keys');
+        my $is-pos   = $value ~~ Positional
+          || !($value ~~ Associative)
+             && !($value ~~ Numeric)
+             && $value.^can('AT-POS') && $value.^can('elems');
+        # Array has AT-KEY (coerces to int), demote assoc for strict Positionals
+        if $is-assoc && $is-pos && $value ~~ Positional {
             $is-assoc = False;
         }
 
