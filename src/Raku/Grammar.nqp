@@ -964,11 +964,14 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token block-with     { with}
     token block-without  { without}
 
-    # Helper: true if the current position in the target is whitespace
-    method after-ws() {
-        self.pos() >= nqp::chars(self.target())
-          || nqp::ordat(self.target(), self.pos()) == 32
-          || nqp::ordat(self.target(), self.pos()) == 9
+    # Helper: true if the character at the current match position is
+    # whitespace (or we are at the end of the target). Takes the match
+    # currently being built (= $/ of the calling token), since a plain
+    # method call doesn't get $/ bound on its own.
+    method after-ws($m) {
+        $m.pos() >= nqp::chars(self.target())
+          || nqp::ordat(self.target(), $m.pos()) == 32
+          || nqp::ordat(self.target(), $m.pos()) == 9
     }
 
     token constraint-where { where}
@@ -1957,7 +1960,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
 
     token statement-mod-redir {
         <.ws>
-        '>' <?{ !self.after-ws() }> <redir-filename>
+        '>' <?{ !self.after-ws($/) }> <redir-filename>
     }
 
     token redir-filename {
@@ -2529,7 +2532,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # `||` branch below and its ordinary <OPER=dotty> method-call
           # path, unaffected. False outside `.rak` mode, so this never
           # matches at all there.
-          || <?{ $*NEW-DOTTY-SEMANTICS }> '.' <OPER=dotty-name-sugar>
+          || <?{ $*RAK-SEMANTICS }> '.' <OPER=dotty-name-sugar>
 
           || [
           | <OPER=postfix>
@@ -2690,7 +2693,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
 
     # SUBSCRIPT-OPERATOR.md §5 Phase 3: `.identifier` (no following `(` or
     # adverbial `: args`) sugar for `<identifier>`, gated by
-    # $*NEW-DOTTY-SEMANTICS (see postfixish above). The lookaheads make this
+    # $*RAK-SEMANTICS (see postfixish above). The lookaheads make this
     # token itself fail to match `.identifier(args)`/`.identifier: args`, so
     # postfixish's alternation falls through to the ordinary <OPER=dotty>
     # method-call path for those instead — this sugar only ever fires for
@@ -2829,7 +2832,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # shape, so `->[`/`->{`/`->(` fall through to the existing
           # obsolete-syntax branches below even in `.rak` mode (deliberately
           # left erroring, per the spec).
-          | <?{ $*NEW-DOTTY-SEMANTICS }>
+          | <?{ $*RAK-SEMANTICS }>
             <.unspace>?
             <methodop(Mu)>
 
@@ -3109,7 +3112,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token infix:sym«>=»     { <sym> }
     token infix:sym«≥»      { <sym> }
     token infix:sym«<»      { <sym> }
-    token infix:sym«>»      { <sym> <?{ !$*RAK-SEMANTICS || self.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), self.pos()) == 32 }> }
+    token infix:sym«>»      { <sym> <?{ !$*RAK-SEMANTICS || $/.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), $/.pos()) == 32 }> }
     token infix:sym«=:=»    { <sym> }
     token infix:sym<===>    { <sym> }
     token infix:sym<⩶>      { <sym> }
@@ -3444,12 +3447,13 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token term:sym<colonpair> { :my $*COLONPAIR-AS-TERM := 1; <colonpair> }
 
     # In rak mode ($*RAK-SEMANTICS), a bare identifier is a naked string
-    # literal (not a function call), unless it looks like a number.
+    # literal (not a function call), unless it looks like a number or is a
+    # known name (a declared lexical / setting routine like say or print).
     token term:sym<rak-string> {
         <?{ $*RAK-SEMANTICS }>
         <identifier>
         <!before '('>
-        <?{ !self.after-ws() || !nqp::istype($<identifier>.ast, self.Nodify('Name')) }>
+        <?{ !$*R.is-identifier-known(~$<identifier>) }>
         {}
     }
 
@@ -6010,8 +6014,8 @@ Rakudo significantly on *every* run."
         [
             || 'if' \s+ $<condition>=[moar|'!moar'] \N*
                  [
+                     || <?{ $<condition> eq 'moar' }>  # true condition, just consume the if line
                      || <?{ $<condition> eq '!moar' }> \n <skip-to-compiler-endif>
-                     || { $<condition> eq 'moar' }  # true condition, just consume the if line
                  ]
             || 'endif' \N*
             || 'line' \s+ $<number>=[\d+] [\s+ $<filename>=[\N+]]? \N*
@@ -6021,9 +6025,12 @@ Rakudo significantly on *every* run."
     # Skip lines until #COMPILER::endif (used when a compile-time condition is false)
     token skip-to-compiler-endif {
         :dba('skip to #COMPILER::endif')
+        # Lazy iteration: stop at the first #COMPILER::endif. (In grammar
+        # tokens a greedy multi-iteration group across newlines can't
+        # backtrack far enough to re-sync on the endif marker.)
         [
             || \N* \n
-        ]*
+        ]*?
         '#COMPILER::endif' \N* [\n | $]
     }
 

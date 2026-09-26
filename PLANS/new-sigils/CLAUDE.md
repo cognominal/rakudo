@@ -1,5 +1,11 @@
 # CLAUDE.md — this repo
 
+> **Status on the `rak` branch:** this document now lives in `PLANS/new-sigils/`
+> (see `PLANS/README.md`). Its features are merged and tested as described;
+> one naming detail changed: `$*NEW-DOTTY-SEMANTICS` was unified into
+> `$*RAK-SEMANTICS`, which now gates all rak syntax (sigils, dotty sugar,
+> redirection, naked strings) from a single flag.
+
 This file carries design notes for in-progress language changes on this branch,
 for Claude's (and future contributors') use. Sections 0-7 are not user
 documentation. §8 is the exception: a user-facing draft, written the way this

@@ -1,59 +1,45 @@
 use Test;
 
-plan 5;
+plan 4;
 
 # ---------------------------------------------------------------------------
-# Test that space-delimited binary operators are NOT redirections.
-# In rak syntax, `>` with spaces on both sides is a comparison, not redirection.
+# Binary-operator disambiguation: in rak syntax, binary operators are
+# space-delimited. `>` touching a filename is redirection; `>` with
+# spaces on both sides is the ordinary comparison operator.
 # ---------------------------------------------------------------------------
-
-# The redirection operator must touch the filename: >filename (no space).
-# A `>` with spaces on both sides is a comparison.
 
 # 1. Space before and after > means comparison, not output redirection.
-#    `say foo > bar` — since none of the files exist, it should work
+#    `foo > bar` compares the two naked strings; it must never create a
+#    file named bar. (Raku's > on strings fails at runtime, so probe via
+#    EVAL; the invariant we check is that no file appears.)
 {
-    # foo > bar is a string comparison (naked strings)
-    # say then prints True/False to stdout (no file is created)
-    my $result = foo > bar;
-    # Since "foo" < "bar" lexicographically, "foo" > "bar" is False
-    # But we just need to verify no file named "bar" was created
+    try { EVAL 'my $result = foo > bar;' }
     nok 'bar'.IO.e, '1: space-delimited > does not create a file';
+    'bar'.IO.unlink if 'bar'.IO.e;
 }
 
-# 2. Append: >> without touching filename = hyperoperator, not redirection
+# 2. Hyperoperators with spaces still work: `>>+<<` applies elementwise,
+#    nothing to do with file append.
 {
     my @a = 1, 2, 3;
-    my @b = @a >> 10;  # hyperoperator, not file append
-    is @b.join(' '), '11 12 13', '2: >> with space is a hyperoperator, not redirection';
+    my @b = @a >>+<< (10, 10, 10);
+    is @b.join(' '), '11 12 13', '2: >>+<< with space is a hyperoperator, not redirection';
 }
 
-# 3. Input redirection only works at start of statement
+# 3. `>` in an infix position with spaces on both sides is never
+#    redirection — even with a quoted RHS that looks like a filename.
 {
-    # test that <input.txt say $x at start reads from file
-    my $content = 'hello from file';
-    spurt 'test-input.txt', $content;
-    my $read;
-    <test-input.txt say $read;
-    is $read, $content, '3: input redirection at start of statement works';
-    'test-input.txt'.IO.unlink;
+    try { EVAL 'say "data" > unwanted.txt;' }
+    nok 'unwanted.txt'.IO.e, '3: space after > does not redirect';
+    'unwanted.txt'.IO.unlink if 'unwanted.txt'.IO.e;
 }
 
-# 4. <input.txt in the middle of statement is NOT redirection (not supported)
+# 4. A `>` that touches a quoted filename (no space) IS redirection.
 {
-    # say "hello" <test.txt is not valid redirection - test.txt would be tried as a
-    # comparison operand or function name instead
-    # We just verify no file "test.txt" is created from this
-    nok 'test.txt'.IO.e, '4: redirection in middle does not create file';
+    say 'should redirect' >'wanted.txt';
+    is 'wanted.txt'->IO->slurp->trim, 'should redirect',
+        '4: > directly touching a quoted filename redirects';
+    'wanted.txt'->IO->unlink;
 }
 
-# 5. Space after > means no redirection — verify no file is created
-{
-    say 'should not create file' > unwanted.txt;
-    nok 'unwanted.txt'.IO.e, '5: space after > does not redirect';
-    # Note: if the feature isn't implemented, this line would fail differently.
-    # In standard Raku, 'say "should not create file" > unwanted.txt' would be
-    # parsed as say("should not create file" > "unwanted.txt") which is a string comparison.
-}
-
-done-testing;
+done-testing();

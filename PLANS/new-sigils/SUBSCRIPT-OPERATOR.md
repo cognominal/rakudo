@@ -1,5 +1,12 @@
 # SUBSCRIPT-OPERATOR.md — this repo
 
+> **Status on the `rak` branch:** this document now lives in `PLANS/new-sigils/`
+> (see `PLANS/README.md`). All phases (1-4) remain merged and green on the
+> combined branch; the gate flag was unified to `$*RAK-SEMANTICS`, and the
+> `.rak` mode now also has redirection/naked-string syntax from the
+> `redirection` branch (which interacts with the dotty sugar: method calls
+> in `.rak` files use `->`, while `.identifier` is the `<identifier>` sugar).
+
 **Standalone design doc.** Written so a fresh Claude Code session (or human)
 can pick this up cold, with no memory of the conversation that produced it.
 If you're that fresh session: read this whole file before touching code —

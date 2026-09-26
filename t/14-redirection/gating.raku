@@ -4,31 +4,29 @@ plan 2;
 
 # ---------------------------------------------------------------------------
 # Gating test: a .raku file must NOT interpret `>` as redirection.
-# Running this with `raku` uses traditional Raku semantics, so:
-#   say foo >output_raku.txt
-# should NOT create a file — `foo` is a bare function call (which fails),
-# and `>` is a comparison operator, not a redirection.
+# Running this with `raku` uses traditional Raku semantics, so `>`
+# is a comparison operator, never a redirection (no file is created).
 # ---------------------------------------------------------------------------
 
-# 1. `say foo >output_raku.txt` should NOT create a file in .raku mode
-#    (in standard Raku, `foo` is a bareword function call that dies)
+# 1. In .raku mode, `say foo >output_raku.txt` is a normal (attempted)
+#    comparison — `foo` is an undeclared bareword call, which is a
+#    compile-time error under both frontends. Probe through EVAL and
+#    verify no output file was ever created.
 {
-    try {
-        say foo >output_raku.txt;
-    }
-    # Either it throws (foo is undeclared) or it doesn't redirect.
-    # Either way, no output_raku.txt should exist.
+    try { EVAL 'say foo >output_raku.txt;' }
     nok 'output_raku.txt'.IO.e,
-        '1: .raku file does not interpret > as output redirection (naked string)';
+        '1: .raku file does not interpret > as output redirection';
     'output_raku.txt'.IO.unlink if 'output_raku.txt'.IO.e;
 }
 
-# 2. Even with quotes, `> 'output_raku2.txt'` has a space, so it's a comparison
+# 2. Even with quotes, `> 'output_raku2.txt'` has a space after `>`, so it
+#    is a comparison, not a redirection — in traditional Raku it can never
+#    write a file (the string comparison itself fails).
 {
-    my $result = 'hello' > 'output_raku2.txt';
+    try { EVAL 'my $r = "hello" > "output_raku2.txt";' }
     nok 'output_raku2.txt'.IO.e,
-        '2: .raku file: quoted "> filename" with space is comparison, not redirection';
+        '2: .raku file: "> filename" with space is comparison, no file written';
     'output_raku2.txt'.IO.unlink if 'output_raku2.txt'.IO.e;
 }
 
-done-testing;
+done-testing();

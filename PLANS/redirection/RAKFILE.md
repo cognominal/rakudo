@@ -1,5 +1,15 @@
 # Converting PLAN/RAKFILE.md to a general blueprint
 
+> **Status on the `rak` branch:** the core of this document (redirection
+> `say foo >file`, naked strings, the `.rak` gate, the `rak` wrapper) is
+> **implemented and tested** in `t/14-redirection/`. Two corrections were
+> required to make it work — both documented in `PLANS/README.md`:
+> the naked-string guard now uses `is-identifier-known` *without* `:exact`
+> (so setting routines like `say` still parse as calls), and the
+> whitespace-after-`>` checks use the current match position `$/.pos()`
+> rather than `self.pos()`. Input redirection (`<file`) remains future
+> work as this document says.
+>
 > **Context:** The original `RAKFILE.md` was written for the **`new-sigils`** branch, which implemented new dotty semantics (`.name → <name>`, `->name → real method call`) gated to files with a `.rak` extension.
 >
 > The **3-step scheme** it describes — capture filename → thread into a dynamic variable in `comp-unit-prologue` → branch the grammar with `<?{ }>` — **is the exact scheme we adopt wholesale** for the current branch (adding shellish redirection support to `.rak` files). Everything documented below follows that same architecture.
