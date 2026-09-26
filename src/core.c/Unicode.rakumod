@@ -1,17 +1,12 @@
 my class Unicode {
 
-#?if moar
+#COMPILER::if moar
     my constant NFG = True;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     my constant NFG = False;
-#?endif
-
+#COMPILER::endif
     # This constant specifies the current Unicode version being supported
-#?if jvm
-    my constant VERSION = nqp::jvmgetunicodeversion.Version;
-#?endif
-#?if !jvm
     my constant VERSION = (
        '1.1' => 'a',
        '2.0' => 'ẛ',
@@ -44,7 +39,6 @@ my class Unicode {
     # PLEASE ADD NEWER UNICODE VERSIONS HERE, AS SOON AS THE UNICODE
     # CONSORTIUM HAS RELEASED A NEW VERSION
     ).first(*.value.uniprop('Age') ne 'Unassigned', :end).key.Version;
-#?endif
 
     has Version $.version = VERSION;
     has Bool    $.NFG     = NFG;

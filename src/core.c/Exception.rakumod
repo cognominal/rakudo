@@ -547,7 +547,7 @@ sub EXCEPTION(|) is implementation-detail {
         elsif $type == nqp::const::CONTROL_DONE {
             $ex := CX::Done.new();
         }
-#?if !moar
+#COMPILER::if !moar
         # for MoarVM this check is done in src/Perl6/Metamodel/BOOTSTRAP.nqp, cmp 222d16b0b9
         elsif !nqp::isnull_s(nqp::getmessage($vm_ex)) &&
                 nqp::p6box_s(nqp::getmessage($vm_ex)) ~~ /"Method '" (.*?) "' not found for invocant of class '" (.+)\'$/ {
@@ -556,7 +556,7 @@ sub EXCEPTION(|) is implementation-detail {
                 typename => ~$1,
             );
         }
-#?endif
+#COMPILER::endif
         else {
             $ex := nqp::create(X::AdHoc);
             nqp::bindattr($ex, X::AdHoc, '$!payload', nqp::p6box_s(nqp::getmessage($vm_ex) // 'unknown exception'));
@@ -1172,12 +1172,7 @@ my class X::Worry::P5::LeadingZero is X::Worry::P5 {
         ('Leading 0 has no meaning. If you meant to create an octal number'
           ~ ", use '0o' prefix"
           ~ (
-#?if jvm
-              $.value ~~ /<[89]>/
-#?endif
-#?if !jvm
               $.value.comb.first(*.unival > 7)
-#?endif
                 ?? ", but note that $.value is not a valid octal number"
                 !! "; like, '0o$.value'"
             )
@@ -2148,12 +2143,7 @@ my class X::Syntax::ConditionalOperator::SecondPartInvalid does X::Syntax {
 my class X::Syntax::Perl5Var does X::Syntax {
     has $.name;
     has $.identifier-name;
-#?if !js
     my constant $m = nqp::hash(
-#?endif
-#?if js
-    my $m := nqp::hash(
-#?endif
       '$"',    '.join() method',
       '$$',    '$*PID',
       '$;',    'real multidimensional hashes',
@@ -3679,7 +3669,7 @@ my class X::Nominalizable::NoKind does X::Nominalizable {
     }
 }
 
-#?if !moar
+#COMPILER::if !moar
 nqp::bindcurhllsym('P6EX', nqp::hash(
   'X::TypeCheck::Binding',
   -> Mu $got is raw, Mu $expected is raw, $symbol? is raw {
@@ -3751,10 +3741,10 @@ nqp::bindcurhllsym('P6EX', nqp::hash(
   -> $feature is raw {
       X::NYI.new(:$feature).throw;
   },
-#?endif
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
 nqp::bindcurhllsym('P6EX', BEGIN nqp::hash(
-#?endif
+#COMPILER::endif
   'X::NoDispatcher',
   -> $redispatcher is raw {
       X::NoDispatcher.new(:$redispatcher).throw;

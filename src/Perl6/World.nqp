@@ -593,13 +593,7 @@ class Perl6::World is HLL::World {
 
         for @can_ver_reversed -> $can-ver {
             # Skip if tried version doesn't match the wanted one
-#?if jvm
-            # Version.new tries to coerce argument to Str, and that doesn't work with BOOTStr.
-            next unless $vWant.ACCEPTS: my $vCan := $Version.new: nqp::box_s($can-ver, self.find_single_symbol_in_setting('Str'));
-#?endif
-#?if !jvm
             next unless $vWant.ACCEPTS: my $vCan := $Version.new: $can-ver;
-#?endif
 
             my $vCanElems := $vCan.parts.elems;
             my $can_rev := nqp::unbox_i($vCan.parts.AT-POS(0));
@@ -2755,12 +2749,10 @@ class Perl6::World is HLL::World {
             }
 
             my $code_obj := nqp::getcodeobj(nqp::curcode());
-#?if !js
             # Temporarily disabled for js until we figure the bug out
             unless nqp::isnull($code_obj) {
                 return $code_obj(|@pos, |%named);
             }
-#?endif
 
             $precomp(|@pos, |%named);
         });

@@ -306,12 +306,12 @@ my class Channel does Awaitable {
         $!closed = 1;
         unless nqp::istype($!terminal, CHANNEL_CLOSE)
           || nqp::istype($!terminal, CHANNEL_FAIL) {
-#?if moar
+#COMPILER::if moar
             nqp::atomicbindattr(self, Channel, '$!terminal', marker);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
             nqp::bindattr(self, Channel, '$!terminal', marker);
-#?endif
+#COMPILER::endif
         }
         nqp::push($!queue, marker);
         # if $!queue is otherwise empty, make sure that $!closed_promise

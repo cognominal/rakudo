@@ -1666,7 +1666,6 @@ class Perl6::Pod {
 
     } # end sub table
 
-#?if !jvm
     # Java 64K method limit can't compile this
     # all-lowercase HTML5 character entities, derived from
     # https://github.com/w3c/html/blob/master/entities.json
@@ -2034,7 +2033,6 @@ class Perl6::Pod {
         }
         $r
     }
-#?endif
 } # end class Perl6::Pod
 
 # vim: expandtab sw=4

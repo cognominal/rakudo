@@ -1,54 +1,7 @@
 # a helper class to abstract support for unicodey functions
 my class Rakudo::Unicodey is implementation-detail {
 
-#?if jvm
-    method unival() is hidden-from-backtrace {
-        NYI('unival').throw;
-    }
 
-    method ords(str $str) {  # strtocodes NYI on JVM
-        my @ords := array[uint32].new;
-        my int $chars = nqp::chars($str);
-        my int $i     = -1;
-
-        nqp::while(
-          nqp::islt_i(++$i,$chars),
-          nqp::push_i(@ords,nqp::ord($str,$i))
-        );
-
-        @ords
-    }
-
-    method unimatch(int, str, str) is hidden-from-backtrace {
-        NYI('unimatch').throw;
-    }
-
-    method uniprop-general(int) is hidden-from-backtrace {
-        NYI('uniprop').throw;
-    }
-    method uniprop(int, str) is hidden-from-backtrace {
-        NYI('uniprop').throw;
-    }
-
-    method uniprops(str, str) is hidden-from-backtrace {
-        NYI('uniprops').throw;
-    }
-
-    method NFC(str) is hidden-from-backtrace {
-        NYI('NFC').throw;
-    }
-    method NFD(str)  is hidden-from-backtrace {
-        NYI('NFD').throw;
-    }
-    method NFKC(str) is hidden-from-backtrace {
-        NYI('NFKC').throw;
-    }
-    method NFKD(str) is hidden-from-backtrace {
-        NYI('NFKD').throw;
-    }
-#?endif
-
-#?if !jvm
     my constant $nuprop = nqp::unipropcode("Numeric_Value_Numerator");
     my constant $deprop = nqp::unipropcode("Numeric_Value_Denominator");
 
@@ -317,7 +270,6 @@ my class Rakudo::Unicodey is implementation-detail {
     method NFKD(str $str) {
         nqp::strtocodes($str,nqp::const::NORMALIZE_NFKD,nqp::create(NFKD))
     }
-#?endif
 
     my role UnicodeyIterator does PredictiveIterator {
         has $!codes;
@@ -668,7 +620,6 @@ multi sub uniprops(\what, Str:D $propname) { what.uniprops($propname) }
 multi sub unival(\what) { what.unival }
 multi sub univals(\what) { what.univals }
 
-#?if !jvm
 multi sub infix:<unicmp>(Str:D $a, Str:D $b) {
     ORDER(nqp::unicmp_s($a,$b,85,0,0))
 }
@@ -692,15 +643,6 @@ multi sub infix:<coll>(Pair:D $a, Pair:D $b) {
       ?? ($a.value coll $b.value)
       !! $cmp
 }
-#?endif
 
-#?if jvm
-multi sub infix:<unicmp>($, $) {
-    NYI("infix unicmp on JVM").throw;
-}
-multi sub infix:<coll>($, $) {
-    NYI("infix coll on JVM").throw;
-}
-#?endif
 
 # vim: expandtab shiftwidth=4

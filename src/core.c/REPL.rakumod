@@ -442,13 +442,11 @@ do {
         method repl-loop(:$no-exit, *%adverbs) {
             my int $stopped;     # did we press CTRL-c just now?
             my $previous-evals := IterationBuffer.new;  # previous values
-#?if !jvm
             signal(SIGINT).tap: {
                 exit if $stopped++;
                 say "Pressed CTRL-c, press CTRL-c again to exit";
                 print self.interactive_prompt($previous-evals.elems);
             }
-#?endif
 
             say $no-exit
               ?? "Type 'exit' to leave"

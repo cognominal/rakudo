@@ -126,10 +126,9 @@ my class Proc::Async {
     has @!promises;
     has $!encoder;
     has @!close-after-exit;
-#?if !moar
+#COMPILER::if !moar
     has $!start-lock = Lock.new;
-#?endif
-
+#COMPILER::endif
     method pty(--> Bool) { $!pty }
 
     method resize-pty(Int :$cols, Int :$rows) {
@@ -367,16 +366,15 @@ my class Proc::Async {
               !! self!start-internal($scheduler, $ENV, $cwd)
         }
 
-#?if moar
+#COMPILER::if moar
         if nqp::eqaddr(cas($!started, False, True),False) {
             actually-start
         }
         elsif $!started {
             X::Proc::Async::AlreadyStarted.new(proc => self).throw
         }
-#?endif
-
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         $!start-lock.protect: {
             X::Proc::Async::AlreadyStarted.new(proc => self).throw
               if $!started;
@@ -384,22 +382,12 @@ my class Proc::Async {
             $!started := True;
             actually-start
         }
-#?endif
+#COMPILER::endif
     }
 
     method !start-internal($scheduler, $ENV, $cwd --> Promise) {
         my %ENV := $ENV ?? $ENV.hash !! %*ENV;
 
-#?if jvm
-        # The Java process API does not allow disabling Javas
-        # sophisticated heuristics of command mangling.
-        # NQPs spawnprocasync implementation on JVM thus overwrites
-        # arg[0] with the program name and forwards the result to Javas
-        # APIs.
-        # So we do not quote the arguments and just let Java do its magic.
-        my @quoted-args := @!args;
-#?endif
-#?if !jvm
         my @quoted-args;
         if Rakudo::Internals.IS-WIN {
             @quoted-args.push(
@@ -410,7 +398,6 @@ my class Proc::Async {
         else {
             @quoted-args := @!args;
         }
-#?endif
 
         $!exit_promise := Promise.new;
 
@@ -456,7 +443,7 @@ my class Proc::Async {
             @!promises.push(
               self!capture($callbacks,'merge',$!merge_supply)
             );
-#?if moar
+#COMPILER::if moar
             # MoarVM reports a spawn failure under the stdout_bytes and
             # stderr_bytes keys, also when the pipes were created for a
             # merged stream.
@@ -464,7 +451,7 @@ my class Proc::Async {
               nqp::atkey($callbacks, 'merge_bytes'));
             nqp::bindkey($callbacks, 'stderr_bytes',
               nqp::atkey($callbacks, 'merge_bytes'));
-#?endif
+#COMPILER::endif
         }
 
         nqp::bindkey($callbacks, 'buf_type', nqp::create(buf8.^pun));
@@ -477,13 +464,13 @@ my class Proc::Async {
             nqp::bindkey($callbacks, 'pty', True);
             nqp::bindkey($callbacks, 'pty-cols', $!pty-cols);
             nqp::bindkey($callbacks, 'pty-rows', $!pty-rows);
-#?if moar
+#COMPILER::if moar
             # A pty reports spawn failures under the stdout_bytes key even
             # when nothing is set up to read stdout. The error callback
             # reports the failure regardless.
             nqp::bindkey($callbacks, 'stdout_bytes', -> Mu, Mu, Mu { })
               unless nqp::existskey($callbacks, 'stdout_bytes');
-#?endif
+#COMPILER::endif
         }
 
         $!process_handle := nqp::spawnprocasync($scheduler.queue(:hint-affinity),

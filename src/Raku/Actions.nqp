@@ -4897,6 +4897,19 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
             $<filename> );
     }
 
+    method comment:sym<#COMPILER>($/) {
+        # For now, the heavy lifting (conditional skipping) is done in
+        # the grammar token itself. The action handles source location
+        # tracking for the 'line' directive.
+        if $<number> {
+            my $origin-source := $*ORIGIN-SOURCE;
+            $origin-source.register-line-directive(
+                $origin-source.original-line($/.from()),
+                nqp::radix(10, $<number>, 0, 0)[0],
+                $<filename> );
+        }
+    }
+
 #-------------------------------------------------------------------------------
 # Declator doc handling
 

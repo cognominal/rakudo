@@ -79,7 +79,7 @@ my class Routine { # declared in BOOTSTRAP
 
     method is-wrapped(--> False) { }
 
-#?if !moar
+#COMPILER::if !moar
     method wrap(&wrapper) {
         my class WrapHandle {
             has $!dispatcher;
@@ -128,9 +128,8 @@ my class Routine { # declared in BOOTSTRAP
         # Add this wrapper.
         self.UNSHIFT_WRAPPER(&wrapper);
     }
-#?endif
-
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
     my role Wrapped {
         has Mu      $!wrappers;
         has Routine $!wrapper-type;
@@ -195,8 +194,7 @@ my class Routine { # declared in BOOTSTRAP
         nqp::bindattr($handle, WrapHandle, '$!wrapper', &wrapper);
         $handle
     }
-#?endif
-
+#COMPILER::endif
     method unwrap($handle) {
         X::Routine::Unwrap.new.throw
           unless $handle.can('restore') && $handle.restore;

@@ -29,27 +29,41 @@ sub MAIN(*@ARGS) {
     }
     my $stderr := nqp::getstderr();
     for @ARGS -> $file {
-        say("#line 1 $prefix$file");
+        say("#COMPILER::line 1 $prefix$file");
         my $fh := open($file, :r, :!chomp);
         my int $in_cond := 0;
         my int $in_omit := 0;
+        my int $in_new_format := 0;  # 1 if current conditional uses #COMPILER:: format
         my int $line    := 1;
         while $fh.get -> $_ {
-            if my $x := $_ ~~ / ^ '#?if' \s+ ('!')? \s* (\w+) \s* $ / {
+            # Support both old (#?if) and new (#COMPILER::if) formats
+            if my $x := $_ ~~ / ^ [ '#?if' | '#COMPILER::if' ] \s+ ('!')? \s* (\w+) \s* $ / {
                 nqp::die("Nested conditionals not supported, line $line") if $in_cond;
                 $in_cond := 1;
                 $in_omit := $x[0] && $x[1] eq $backend || !$x[0] && $x[1] ne $backend;
-                print("\n");
+                $in_new_format := nqp::eqat($_, '#COMPILER::', 0) ?? 1 !! 0;
+                if $in_new_format && !$in_omit {
+                    print($_);  # true condition with new format: pass through
+                }
+                else {
+                    print("\n");  # false or old format: strip
+                }
             }
-            elsif $_ ~~ /^ '#?endif' / {
+            elsif $_ ~~ /^ [ '#?endif' | '#COMPILER::endif' ] / {
                 unless $in_cond {
                     stderr().say(
                         "#?endif without matching #?if in file $file, line $line"
                     );
                 }
+                if $in_new_format && !$in_omit {
+                    print($_);  # matching true new-format conditional: pass through
+                }
+                else {
+                    print("\n");  # false or old format: strip
+                }
                 $in_cond := 0;
                 $in_omit := 0;
-                print("\n");
+                $in_new_format := 0;
             }
             elsif $in_omit {
                 print("\n");
@@ -62,10 +76,6 @@ sub MAIN(*@ARGS) {
                 print(
                   nqp::join("'$flavor'", nqp::split('#RAKUDO_FLAVOR#', $_))
                 );
-            }
-            elsif $backend eq 'js' && $_ ~~ /'#?js: NFG'/ {
-                print(subst($_, /nqp\:\:[chars|substr|iseq_s|iscclass]/,
-                    -> $op {$op ~ 'nfg'}, :global));
             }
             else {
                 print($_) unless nqp::eqat($_,"# vim:",0);

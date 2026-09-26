@@ -5838,6 +5838,28 @@ Rakudo significantly on *every* run."
 
     proto token comment {*}
 
+    token comment:sym<#COMPILER> {
+        '#COMPILER::'
+        [
+            || 'if' \s+ $<condition>=[moar|'!moar'] \N*
+                 [
+                     || <?{ $<condition> eq '!moar' }> \n <skip-to-compiler-endif>
+                     || { $<condition> eq 'moar' }  # true condition, just consume the if line
+                 ]
+            || 'endif' \N*
+            || 'line' \s+ $<number>=[\d+] [\s+ $<filename>=[\N+]]? \N*
+        ]
+    }
+    
+    # Skip lines until #COMPILER::endif (used when a compile-time condition is false)
+    token skip-to-compiler-endif {
+        :dba('skip to #COMPILER::endif')
+        [
+            || \N* \n
+        ]*
+        '#COMPILER::endif' \N* [\n | $]
+    }
+
     token comment:sym<#> {
        '#' {} \N*
     }

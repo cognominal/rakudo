@@ -25,12 +25,7 @@ class Perl6::Metamodel::GenericHOW
         my str $name  := self.name($target);
         my str $kind  := $type_environment.HOW.name($type_environment);
 
-#?if !jvm
         my $found := $kind eq 'BOOTContext'
-#?endif
-#?if jvm
-        my $found := $kind eq 'ContextRef'
-#?endif
           ?? nqp::getlexrel($type_environment, $name)
           !! $kind eq 'BOOTHash'
             ?? nqp::atkey($type_environment, $name)

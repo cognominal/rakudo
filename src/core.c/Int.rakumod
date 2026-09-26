@@ -5,13 +5,12 @@ my class Int { ... }
 my subset UInt of Int where {
     nqp::not_i(nqp::isconcrete($_)) || nqp::isge_I(nqp::decont($_),0)
 }
-#?if moar
+#COMPILER::if moar
 nqp::syscall('set-cur-hll-config-key', 'uint_box', UInt);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
 nqp::dispatch('boot-syscall', 'set-cur-hll-config-key', 'uint_box', UInt);
-#?endif
-
+#COMPILER::endif
 my class Int does Real { # declared in BOOTSTRAP
     # class Int is Cool
     #     has bigint $!value is box_target;

@@ -13,14 +13,8 @@ my class Match is Capture is Cool does NQPMatchRole {
 #    has $!match;     # flag indicating Match object set up (NQPdidMATCH)
 #    has str $!name;  # name if named capture
 
-#?if !js
     my constant $EMPTY_LIST = nqp::list();
     my constant $EMPTY_HASH = nqp::hash();
-#?endif
-#?if js
-    my $EMPTY_LIST := nqp::list();
-    my $EMPTY_HASH := nqp::hash();
-#?endif
 
     method print() {
         callframe(1).my<$¢>
@@ -184,11 +178,6 @@ my class Match is Capture is Cool does NQPMatchRole {
         )
     }
 
-#?if js
-    my sub move_cursor($target, $pos) {
-       nqp::chars(nqp::substrnfg(nqp::substr($target, $pos), 0, 1)) || 1;
-    }
-#?endif
 
     # adapted from !cursor_more in nqp
     method CURSOR_OVERLAP() is raw is implementation-detail {
@@ -209,12 +198,7 @@ my class Match is Capture is Cool does NQPMatchRole {
         nqp::bindattr_i($new,$?CLASS,'$!from',
           nqp::bindattr_i($new,$?CLASS,'$!to',-1));
         nqp::bindattr_i($new,$?CLASS,'$!pos',nqp::isge_i($!from,$!pos)
-#?if !js
           ?? nqp::add_i($!from,1)
-#?endif
-#?if js
-          ?? nqp::add_i($!from, move_cursor(self.target, $!pos))
-#?endif
           !! $!pos);
         $!regexsub($new)
     }
@@ -504,24 +488,24 @@ multi sub infix:<!~~>(Mu \topic, Match:D $matcher) {
 # Disambiguate from the Junction topic candidates: a Junction topic still
 # matches over its eigenstates.
 multi sub infix:<~~>(Junction:D \topic, Match:D $matcher) {
-#?if moar
+#COMPILER::if moar
     nqp::dispatch('raku-smartmatch', topic, $matcher, nqp::unbox_i(1))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     SETTING-ONLY-ACCEPTS($matcher)
       ?? topic.BOOLIFY-ACCEPTS($matcher)
       !! $matcher.ACCEPTS(topic).Bool
-#?endif
+#COMPILER::endif
 }
 multi sub infix:<!~~>(Junction:D \topic, Match:D $matcher) {
-#?if moar
+#COMPILER::if moar
     nqp::dispatch('raku-smartmatch', topic, $matcher, nqp::unbox_i(-1))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     SETTING-ONLY-ACCEPTS($matcher)
       ?? topic.BOOLIFY-ACCEPTS($matcher, 1)
       !! $matcher.ACCEPTS(topic).not
-#?endif
+#COMPILER::endif
 }
 
 # vim: expandtab shiftwidth=4

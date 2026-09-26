@@ -43,12 +43,10 @@ my class Regex { # declared in BOOTSTRAP
           !! Nil
     }
 
-#?if !jvm
     multi method ACCEPTS(Regex:D \SELF: Uni:D \uni) {
         $/ := nqp::getlexrelcaller(nqp::ctxcallerskipthunks(nqp::ctx()),'$/');
         self.ACCEPTS(uni.Str)
     }
-#?endif
 
     multi method ACCEPTS(Regex:D \SELF: @a) {
         SELF!ACCEPT-ITERATOR(

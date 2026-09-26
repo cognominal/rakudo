@@ -199,7 +199,7 @@ my class IO::Socket::Async {
         $p
     }
 
-#?if moar
+#COMPILER::if moar
     method connect-path(IO::Socket::Async:U: Str() $path,
                    :$enc = 'utf-8', :$scheduler = $*SCHEDULER) {
         my $p = Promise.new;
@@ -229,8 +229,7 @@ my class IO::Socket::Async {
             nqp::unbox_s($path), SocketCancellation);
         $p
     }
-#?endif
-
+#COMPILER::endif
     class ListenSocket is Tap {
         has Promise $!VMIO-tobe   is built;
         has Promise $.socket-host is built;
@@ -341,7 +340,7 @@ my class IO::Socket::Async {
             :$host, :$port, :$backlog, :$encoding, :$scheduler
     }
 
-#?if moar
+#COMPILER::if moar
     my class SocketUnixListenerTappable does Tappable {
         has $!path;
         has $!backlog;
@@ -437,8 +436,7 @@ my class IO::Socket::Async {
         Supply.new: SocketUnixListenerTappable.new:
             :$path, :$backlog, :$encoding, :$scheduler
     }
-#?endif
-
+#COMPILER::endif
     method native-descriptor(--> Int) {
         nqp::filenofh($!VMIO)
     }
@@ -449,7 +447,7 @@ my class IO::Socket::Async {
         nqp::bindattr(socket, IO::Socket::Async, '$!close-vow', $p.vow);
     }
 
-#?if moar
+#COMPILER::if moar
     method udp(IO::Socket::Async:U: :$broadcast, :$enc = 'utf-8', :$scheduler = $*SCHEDULER) {
         my $p = Promise.new;
         my $encoding = Encoding::Registry.find($enc);
@@ -525,7 +523,7 @@ my class IO::Socket::Async {
             nqp::unbox_s($host), nqp::unbox_i($port));
         $p
     }
-#?endif
+#COMPILER::endif
 }
 
 # vim: expandtab shiftwidth=4
