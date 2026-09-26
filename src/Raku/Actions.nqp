@@ -425,35 +425,30 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         # Be ready to report locations in the source.
         $*ORIGIN-SOURCE := Nodify('Origin::Source').new(:orig($/.target()));
 
-        # SUBSCRIPT-OPERATOR.md §4.1/§5 Phase 3: a `.rak`-extension source
-        # file gets the new dotty semantics (bare `.name`, no args, means
-        # `<name>`; `->name` for an actual parameterless method call).
-        # Every other extension (.raku, .rakumod, .pm6, .nqp, or no
-        # filename at all, e.g. -e/STDIN) keeps today's behavior exactly —
-        # see Perl6::Compiler.command_eval for how source-name gets
-        # populated for a plain file argument (NQP's own HLL::Compiler
-        # never does this itself).
+        # Set the .rak extension gate: source files ending in .rak get
+        # rak semantics (new sigils, dotty sugar, redirection, naked strings,
+        # etc.). Every other extension (.raku, .rakumod, .pm6, .nqp, or
+        # -e/STDIN with no filename) keeps today's behavior exactly, unless
+        # RAKU_RAK_MODE=1 is set (REPL use via the `rak` executable).
         my str $source-name := %*COMPILING<%?OPTIONS><source-name> // '';
         my int $name-len := nqp::chars($source-name);
         my int $is-real-file := $name-len
           && !nqp::eqat($source-name, '-', 0);
 
-        # Check for .rak extension: the last 4 chars are exactly '.rak'.
-        # This naturally excludes .raku (5 chars), .rakumod (7 chars), etc.
         my int $is-rak := $name-len >= 4
           && nqp::eqat($source-name, '.rak', $name-len - 4);
 
         if $is-rak {
-            $*NEW-DOTTY-SEMANTICS := 1;
+            $*RAK-SEMANTICS := 1;
         }
         elsif $is-real-file {
-            $*NEW-DOTTY-SEMANTICS := 0;
+            $*RAK-SEMANTICS := 0;
         }
         elsif nqp::getenvhash<RAKU_RAK_MODE> {
-            $*NEW-DOTTY-SEMANTICS := 1;
+            $*RAK-SEMANTICS := 1;
         }
         else {
-            $*NEW-DOTTY-SEMANTICS := 0;
+            $*RAK-SEMANTICS := 0;
         }
 
         # Set up the base resolver
@@ -1094,6 +1089,48 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
               if $<statement-mod-cond>;
             $statement.replace-loop-modifier($<statement-mod-loop>.ast)
               if $<statement-mod-loop>;
+
+            # Handle output redirection (.rak syntax)
+            if $<statement-mod-redir> && $*RAK-SEMANTICS {
+                my $filename-ast := $<statement-mod-redir>.ast;
+                my $open-args := Nodify('ArgList').new(
+                    $filename-ast,
+                    Nodify('ColonPair::True').new('w')
+                );
+                my $open-call := Nodify('Call::Name').new(
+                    name => Nodify('Name').from-identifier('open'),
+                    args => $open-args
+                );
+                # Extract the content from the original expression.
+                # If it's a Call::Name (like say("...")), use its args directly.
+                # Otherwise wrap the whole expression.
+                my $expr-ast := $<EXPR>.ast;
+                my $content-args;
+                if nqp::istype($expr-ast, Nodify('Call')) {
+                    my $old-args := $expr-ast.args;
+                    my int $n := $old-args.arity;
+                    $content-args := Nodify('ArgList').new;
+                    my int $i := 0;
+                    while $i < $n {
+                        $content-args.push($old-args.arg-at-pos($i));
+                        $i := $i + 1;
+                    }
+                }
+                else {
+                    $content-args := Nodify('ArgList').new($expr-ast);
+                }
+                my $call-method := Nodify('Call::Method').new(
+                    name => Nodify('Name').from-identifier('say'),
+                    args => $content-args
+                );
+                my $redirect-ast := Nodify('ApplyPostfix').new(
+                    operand => $open-call,
+                    postfix => $call-method
+                );
+                $statement := Nodify('Statement::Expression').new(
+                    :expression($redirect-ast.to-begin-time($*R, $context))
+                );
+            }
         }
 
         # Handle statement control (if / for / given / when / etc.)
@@ -1674,6 +1711,43 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
     method statement-mod-loop:sym<given>($/)   { self.SM-cond($/, 'Given')   }
     method statement-mod-loop:sym<until>($/)   { self.SM-cond($/, 'Until')   }
     method statement-mod-loop:sym<while>($/)   { self.SM-cond($/, 'While')   }
+
+#-------------------------------------------------------------------------------
+# Redirection statement modifier (rak syntax only)
+
+    method statement-mod-redir($/) {
+        my $ast := $<redir-filename>.ast;
+        unless nqp::isconcrete($ast) {
+            my $raw := ~$/;
+            $/.panic("Redirection filename AST is not concrete (term raw: '$raw')");
+        }
+        self.attach: $/, $ast;
+    }
+
+    method redir-filename($/) {
+        # Propagate the matched alternative's AST to this level.
+        self.attach: $/,
+          nqp::isconcrete($<redir-naked-filename>) ?? $<redir-naked-filename>.ast
+          !! nqp::isconcrete($<redir-quoted-filename>) ?? $<redir-quoted-filename>.ast
+          !! $<redir-var-filename>.ast;
+    }
+
+    method redir-naked-filename($/) {
+        self.attach: $/, Nodify('QuotedString').new(
+            segments => [Nodify('StrLiteral').new(~$/)]
+        )
+    }
+
+    method redir-quoted-filename($/) {
+        self.attach: $/, Nodify('QuotedString').new(
+            segments => [Nodify('StrLiteral').new(~$/[0])]
+        )
+    }
+
+    method redir-var-filename($/) {
+        my $name := '$' ~ ~$<identifier>;
+        self.attach: $/, Nodify('Var::Lexical').new($name)
+    }
 
 #-------------------------------------------------------------------------------
 # Phasers
@@ -2831,6 +2905,13 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
 
     method term:sym<colonpair>($/) {
         self.attach: $/, $<colonpair>.ast
+    }
+
+    method term:sym<rak-string>($/) {
+        my $name := ~$<identifier>;
+        self.attach: $/, Nodify('QuotedString').new(
+            segments => [Nodify('StrLiteral').new($name)]
+        )
     }
 
     method term:sym<variable>($/) {

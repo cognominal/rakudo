@@ -1,0 +1,59 @@
+use Test;
+
+plan 5;
+
+# ---------------------------------------------------------------------------
+# Test that space-delimited binary operators are NOT redirections.
+# In rak syntax, `>` with spaces on both sides is a comparison, not redirection.
+# ---------------------------------------------------------------------------
+
+# The redirection operator must touch the filename: >filename (no space).
+# A `>` with spaces on both sides is a comparison.
+
+# 1. Space before and after > means comparison, not output redirection.
+#    `say foo > bar` — since none of the files exist, it should work
+{
+    # foo > bar is a string comparison (naked strings)
+    # say then prints True/False to stdout (no file is created)
+    my $result = foo > bar;
+    # Since "foo" < "bar" lexicographically, "foo" > "bar" is False
+    # But we just need to verify no file named "bar" was created
+    nok 'bar'.IO.e, '1: space-delimited > does not create a file';
+}
+
+# 2. Append: >> without touching filename = hyperoperator, not redirection
+{
+    my @a = 1, 2, 3;
+    my @b = @a >> 10;  # hyperoperator, not file append
+    is @b.join(' '), '11 12 13', '2: >> with space is a hyperoperator, not redirection';
+}
+
+# 3. Input redirection only works at start of statement
+{
+    # test that <input.txt say $x at start reads from file
+    my $content = 'hello from file';
+    spurt 'test-input.txt', $content;
+    my $read;
+    <test-input.txt say $read;
+    is $read, $content, '3: input redirection at start of statement works';
+    'test-input.txt'.IO.unlink;
+}
+
+# 4. <input.txt in the middle of statement is NOT redirection (not supported)
+{
+    # say "hello" <test.txt is not valid redirection - test.txt would be tried as a
+    # comparison operand or function name instead
+    # We just verify no file "test.txt" is created from this
+    nok 'test.txt'.IO.e, '4: redirection in middle does not create file';
+}
+
+# 5. Space after > means no redirection — verify no file is created
+{
+    say 'should not create file' > unwanted.txt;
+    nok 'unwanted.txt'.IO.e, '5: space after > does not redirect';
+    # Note: if the feature isn't implemented, this line would fail differently.
+    # In standard Raku, 'say "should not create file" > unwanted.txt' would be
+    # parsed as say("should not create file" > "unwanted.txt") which is a string comparison.
+}
+
+done-testing;

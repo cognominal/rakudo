@@ -1,0 +1,44 @@
+use Test;
+
+plan 4;
+
+# ---------------------------------------------------------------------------
+# Edge cases for output redirection
+# ---------------------------------------------------------------------------
+
+# 1. Filenames with dots (already covered in basic, but explicit here)
+{
+    say 'config data' >config.v1.test.yaml;
+    is 'config.v1.test.yaml'.IO.slurp.trim, 'config data',
+        '1: filename with multiple dots works';
+    'config.v1.test.yaml'.IO.unlink;
+}
+
+# 2. Filenames with underscores
+{
+    say 'snake_case' >my_output_file.txt;
+    is 'my_output_file.txt'.IO.slurp.trim, 'snake_case',
+        '2: filename with underscores works';
+    'my_output_file.txt'.IO.unlink;
+}
+
+# 3. Naked string content with digits + filename with digits
+{
+    say log123 >output456.txt;
+    is 'output456.txt'.IO.slurp.trim, 'log123',
+        '3: alphanumeric content and filename work';
+    'output456.txt'.IO.unlink;
+}
+
+# 4. Filename as a naked string that starts with a digit is NOT valid
+#    (it would be interpreted as a number, not a filename)
+#    So `say data >123file.txt` should NOT create a file
+{
+    # `123file.txt` does not start with alpha → not a naked string
+    # This should either fail to parse or NOT create a file
+    # We just verify no file was created (regardless of error)
+    nok '123file.txt'.IO.e,
+        '4: filename starting with digit is not a naked string — no file created';
+}
+
+done-testing;

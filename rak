@@ -1,23 +1,23 @@
-#!/bin/sh
-# rak — invoke rakudo with .rak-mode semantics by default
+#!/bin/bash
+# rak — invoke rakudo with .rak-mode semantics by default.
 #
-# This branch's new dotty semantics are gated behind a `.rak` file
-# extension: `foo.rak` gets `$*NEW-DOTTY-SEMANTICS=1`, turning `.name`
-# into `<name>` subscript sugar. This wrapper is the argumentless
-# equivalent: running `rak` with no arguments starts an interactive
-# REPL where dotty semantics are active from the first prompt.
+# Running `rak` without arguments starts an interactive REPL where all
+# rak features are active (new sigils, dotty subscript sugar, redirection
+# syntax, naked strings). With a file argument, the file extension
+# determines which semantics apply: .rak activates rak features; .raku,
+# .rakumod, .pm6, .nqp keep traditional Raku.
 #
 # Usage: rak [-- raku-options] [file.rak] [args...]
 #
-# Environment variable RAKU_RAK_MODE=1 triggers dotty semantics for
-# source files that don't have their own extension (REPL, -e, STDIN).
-# Physical .rak files always get dotty semantics from their extension;
+# Environment variable RAKU_RAK_MODE=1 enables rak semantics for sources
+# that have no file extension (REPL, -e, STDIN). Set automatically here.
+# Physical .rak files always get rak semantics from their extension;
 # physical .raku/.rakumod files always get traditional semantics.
 #
-# Requires RAKUDO_RAKUAST=1 (this branch targets only the RakuAST
-# frontend — the legacy Perl6 frontend is not supported).
+# Requires RAKUDO_RAKUAST=1 (targets only the RakuAST frontend).
 
-# Resolve the rakudo binary. Follow the symlink to find the real directory.
-RAKUDO_BIN=$(cd -P -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)/rakudo-m
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export RAKUDO_RAKUAST=1
+export RAKU_RAK_MODE=1
 
-RAKUDO_RAKUAST=1 RAKU_RAK_MODE=1 exec "$RAKUDO_BIN" "$@"
+exec "$SCRIPT_DIR/rakudo-m" "$@"
