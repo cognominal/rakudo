@@ -1,0 +1,10 @@
+#!/bin/bash
+# rak - Raku shell with .rak semantics (RAKUDO_RAKUAST + extension gating)
+# Without arguments: opens an interactive REPL using .rak semantics.
+# With a file argument: compiles/executes the file; the extension determines
+# whether .rak features are active (.rak = on, .raku etc. = traditional).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export RAKUDO_RAKUAST=1
+
+exec "$SCRIPT_DIR/rakudo-m" --rakudo-home="$SCRIPT_DIR/install" "$@"
