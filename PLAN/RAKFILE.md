@@ -336,3 +336,259 @@ $ raku t/redirection-basic.rak
 ```
 
 The `.rak` extension triggers the feature; the extension-based gating keeps all existing `.raku`/`.rakumod`/`.pm6`/`.nqp` tests unaffected.
+
+---
+
+## Shell redirection reference
+
+Below is a complete catalog of classic Bourne/POSIX shell redirection operators,
+with their rak syntax equivalent, transformation semantics, and implementation
+challenges.
+
+### 1. Output stdout (`>`) — IMPLEMENTED
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd >file` | `say(x) >file` | Write stdout to file (overwrite) |
+|
+
+**Current AST**: `open(file, :w).say(x)` via `ApplyPostfix(open-call, Call::Method('say', args))`.
+**Problem**: always hardcodes `.say()` — doesn't generalize to `print`, `put`, or
+a bare expression whose output should go to the file (e.g. `foo >file` with
+naked string `foo`). Need a block with `temp $*OUT = open(file, :w); EXPR`
+instead.
+
+### 2. Append stdout (`>>`) — NOT YET IMPLEMENTED
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd >>file` | `say(x) >>file` | Append stdout to file |
+
+**AST**: `open(file, :a).say(x)` — `:a` instead of `:w`.
+**Grammar**: `>>` is already a hyperoperator in standard Raku. The infix guard
+for `>>` (already has `<?[\s]>` for deprecation) must also check
+`$*RAK-SEMANTICS` to distinguish `>>file` (append redirection) from `>> file`
+(hyperoperator). Currently `>>` is guarded only by the stock `<?[\s]>`
+assertion, which works: `>>file` (no space after `>>`) fails as a hyper and
+the redirection grammar can pick it up.
+
+**Conflict**: `>>` as hyperoperator in `@a >> 10` (space both sides) vs
+`$fh >>file` as append redirection. The space rule resolves this cleanly:
+`>>file` = redirection, `>> file` = hyperoperator.
+
+### 3. Input stdin (`<`) — STUB ONLY (grammar token present, no AST)
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd <file` | `<file process(x)` | Read stdin from file |
+
+**Meaning**: The statement's `$*IN` is rebound to read from `file` instead of
+stdin. The statement processes input line-by-line (like the `-n` or `-p` flag).
+
+**Grammar**: Already defined as `statement-mod-redir` but only `>` is
+implemented. Needs `<` token:
+```perl6
+token statement-mod-redir {
+    <.ws>
+    [
+      | '>' <?{ !self.after-ws() }> <redir-filename>
+      | '<' <?{ !self.after-ws() }> <redir-filename>
+    ]
+}
+```
+
+**AST challenge**: `<input.txt` at statement HEAD (not end) needs a different
+hook. The current `statement-mod-redir` only fires after EXPR (statement end).
+Input redirection at the start needs a grammar rule that fires before EXPR,
+e.g. in `statement-prefix` or a new `statement-control` alternative.
+The AST would wrap the statement body in a block that binds `$*IN` to the
+opened file, then runs the statement per line (like `for lines() { ... }`).
+
+### 4. Append both directions (`<>`) — FUTURE
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd <>file` | `process(x) <>file` | Open file for R/W, use as stdin/stdout |
+
+**Challenge**: `<>` is already the Raku angle-bracket quote operator
+(`qw/a b c/`). The space rule (`<>file` vs `<> file`) is the only way to
+disambiguate — but `<>` without spaces is also `<>` auto-quoting. This may
+require a longer lookahead or a different syntax altogether.
+
+**Probably deferred** until we resolve the angle-bracket conflict.
+
+### 5. Stderr redirection (`2>`, `2>>`) — FUTURE
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd 2>file` | `process(x) 2>file` | Write stderr to file |
+| `cmd 2>>file` | `process(x) 2>>file` | Append stderr to file |
+
+**Challenge**: `2>` is NOT a `>` preceded by a number — in Raku, `2 >file`
+(with space before `>`) is a comparison `2 > file`. The digit before `>`
+needs to directly touch the `>` (no space): `2>file`. But then `2` looks
+like a term, and `>file` is a redirection. The grammar would need to parse
+`N>` as a file-descriptor-number prefix before the `>`. This is hard because
+`2` in `2>file` is already a valid Raku term (an integer literal), so the
+parser would first try `2` as a term, then find `>file` as a redirection,
+and only then realize `2>file` was meant as a unit. Options:
+- **Grammar hack**: after parsing the expression, if `statement-mod-redir`
+  sees a digit immediately before `>`, reinterpret the digit as a fd number.
+- **NQP pattern**: use a lookahead in the EXPR parser to prevent `N>`
+  from being parsed as `N` term + `>file` redirection.
+
+**Deferred** — requires either the RakuAST dynamic `$*ERR` variable (does not
+exist yet) or `note`/`warn` modifications.
+
+### 6. Merging stderr→stdout (`2>&1`) — FUTURE
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd 2>&1` | `process(x) 2>&1` | Send stderr where stdout goes |
+
+**Challenge**: `1` is a file descriptor number. `2>&1` means "make fd 2
+(stderr) go to wherever fd 1 (stdout) is going." This requires runtime
+fd duplication, which MoarVM's `$*ERR`/`$*OUT` dynamic variables don't
+directly support (they use handles, not POSIX fds).
+
+**Approach**: `temp $*ERR = $*OUT;` in a block wrapper — far simpler.
+**Deferred** — needs the `N>` syntax (item 5) and `$*ERR` support.
+
+### 7. Merging stdout→stderr (`1>&2`) — FUTURE
+
+Same as 6 but reversed: `temp $*OUT = $*ERR`.
+
+### 8. Both stdout and stderr (`&>`, `>&`) — FUTURE
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd &>file` | `process(x) &>file` | Both stdout and stderr to file |
+| `cmd >&file` | `process(x) >&file` | Same (alternate syntax) |
+
+**Challenge**: `&>` could be parsed as a conjunction (`&`) followed by
+`>file` redirection. The `&` is a Raku infix operator. But `&>file`
+without space after `&` isn't a valid infix in rak mode. So the space
+rule applies: `&>file` = redirect+both, `& >file` = infix + redirection
+(which is nonsensical).
+
+**Grammar**: new alternative in `statement-mod-redir`:
+```perl6
+| '&' '>' <?{ !self.after-ws() }> <redir-filename>
+```
+AST: opens file `:w` and binds both `$*OUT` and `$*ERR` to it via
+a `temp` block.
+
+**Deferred** — requires `$*ERR` support.
+
+### 9. Here-document (`<<EOF`) — FUTURE
+
+| Shell | rak syntax | Effect |
+|-------|------------|--------|
+| `cmd <<EOF` | `process(x) <<EOF` | Read stdin from inline text until `EOF` |
+
+**Challenge**: `<<EOF` is already the Raku `<<` hyperoperator or `«`
+quote operator. The space rule helps: `<<EOF` without spaces after `<<`
+could be a heredoc. But `<<` is also used for the `«` quoting style
+(`<<identifier>>`). Full lexical analysis of what follows `<<` is
+needed.
+
+**Deferred** — complex lexing interaction with existing Raku quoting.
+
+### 10. Here-string (`<<<word`) — FUTURE
+
+`cmd <<<"inline string"` feeds the string as stdin. Similar challenges
+to heredoc but simpler (no terminator).
+
+### 11. File descriptor duplication (`N<&M`) — FUTURE
+
+Complex to parse; requires fd-number prefix grammar for both `<` and `>`.
+
+---
+
+## Stacking redirections
+
+In shell, multiple redirections can be combined on one command:
+```sh
+cmd <in.txt >out.txt 2>err.txt      # three separate files
+cmd <in.txt >>out.txt 2>&1          # input + append stdout + stderr to stdout
+```
+
+### Challenges for stacking in rak syntax
+
+**1. Grammar ambiguity**: if redirections appear at both start and end,
+the parser needs to handle:
+```raku
+<input.txt say(x) >out.txt
+```
+This is: input redirection at start (`<input.txt`) + output at end
+(`>out.txt`).
+
+**2. Stacking at the end**:
+```raku
+say(x) >out.txt 2>err.txt    # impossible — `2>err.txt` after `>out.txt`
+```
+This requires either the fd-number syntax (item 5) or a different
+approach like named alternatives:
+```raku
+say(x) :stdout>out.txt :stderr>err.txt
+```
+(colon-pair style).
+
+**3. Combining stdout and stderr**:
+```raku
+say(x) >out.txt 2>&1         # impossible without fd syntax
+```
+
+**4. End-of-statement limitation**: the current `statement-mod-redir`
+captures ONE redirection after EXPR. Multiple redirections require
+either a loop in the grammar or a separator convention.
+
+### Stacking approaches
+
+**Option A: Chained redirection tokens**
+
+Grammar repeats `<redir-spec>` one or more times:
+```perl6
+token statement-end-redirs {
+    <redir-spec>+
+}
+token redir-spec {
+    <redir-kind> <?{ !self.after-ws() }> <redir-filename>
+}
+token redir-kind {
+    '>' | '>>' | '<' | ...
+}
+```
+Order matters: the AST collector processes them in order.
+
+**Option B: Shell-merge syntax**
+
+```raku
+say(x) >out.txt >err.txt   # stdout→out.txt, stderr→err.txt
+```
+This conflicts with "last-redirection-wins" semantics. We need explicit
+fd prefixes or named-colon syntax.
+
+**Option C: Named colonpair style**
+
+```raku
+say(x) :out>out.txt :err>err.txt :append>log.txt
+```
+This is more Raku-idiomatic but less shell-like. The colon triggers
+the usual colonpair parsing, and the filename is the value. Easier to
+parse but moves away from the shell aesthetic.
+
+### Recommended stacking order
+
+1. **First**: `>` only (done)
+2. **Second**: `>>` (append), leveraging same grammar pattern
+3. **Third**: `<` at statement start (input redirection, different hook)
+4. **Fourth**: `<` + `>`/`>>` stacked (input from file + output to file)
+5. **Fifth**: fd-number prefixes (`2>`, `2>>`) with RakuAST `$*ERR`
+6. **Sixth**: `2>&1` and `&>` merge operations
+
+Pipe (`|`) is a separate concern — it connects TWO statements
+(producer | consumer) and needs to thread `$*OUT` of the first to
+`$*IN` of the second. This is a completely different grammar pattern
+(unary prefix? binary infix?) and is deferred until after redirections
+are solid. 
