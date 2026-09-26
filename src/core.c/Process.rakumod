@@ -111,18 +111,10 @@ augment class Rakudo::Internals {
       },
 
       '$*DISTRO', anon sub DISTRO() is raw {
-#?if jvm
-          my $properties := VM.new.properties;
-          my $name       := $properties<os.name>;
-          my $version    := $properties<os.version>;
-          my $path-sep   := $properties<path.separator>;
-#?endif
-#?if !jvm
           my $config   := VM.new.config;
           my $name     := $config<osname>;
           my $version  := $config<osvers>;
           my $path-sep := $name eq 'MSWin32' ?? ';' !! ':';
-#?endif
           my Str $release := "unknown";
           my Str $auth    := "unknown";
           my Str $desc    := "unknown";
@@ -157,12 +149,7 @@ augment class Rakudo::Internals {
               $release := $_ with $lookup<BuildVersion>;
               $auth    := 'Apple Inc.'; # presumably
 
-#?if !js
               my constant $names = nqp::hash(
-#?endif
-#?if js
-              my $names := nqp::hash(
-#?endif
                 '10.0',  'Cheetah',
                 '10.1',  'Puma',
                 '10.2',  'Jaguar',
@@ -226,17 +213,10 @@ augment class Rakudo::Internals {
       '$*EXECUTABLE', anon sub EXECUTABLE() is raw {
           PROCESS::<$EXECUTABLE> := IO::Path.new(:CWD(INIT nqp::cwd()),
             nqp::execname()
-#?if jvm
-            || $*VM.properties<perl6.prefix> ~ '/bin/perl6-j'
-#?endif
-#?if moar
+#COMPILER::if moar
             || ($*VM.config<prefix> ~ '/bin/'
               ~ ($*VM.config<osname> eq 'MSWin32' ?? 'perl6-m.exe' !! 'perl6-m'))
-#?endif
-#?if js
-            // ($*VM.config<prefix> ~ '/bin/'
-              ~ ($*VM.config<osname> eq 'MSWin32' ?? 'perl6-js.bat' !! 'perl6-js'))
-#?endif
+#COMPILER::endif
         )
       },
 
@@ -357,13 +337,8 @@ augment class Rakudo::Internals {
       },
 
       '$*SCHEDULER', anon sub SCHEDULER() is raw {
-#?if !js
           PROCESS::<$SCHEDULER> := ThreadPoolScheduler.new
-#?endif
 
-#?if js
-          PROCESS::<$SCHEDULER> := JavaScriptScheduler.new
-#?endif
       },
 
       '$*THREAD', anon sub THREAD() is raw {

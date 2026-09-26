@@ -4589,33 +4589,6 @@ class Perl6::Optimizer {
     # we may be passing.
     method call_ct_chosen_multi($call, $proto, $chosen) {
         self.simplify_refs($call, $chosen.signature);
-#?if jvm
-        my @cands := $proto.dispatchees();
-        my int $idx := 0;
-        for @cands {
-            if $_ =:= $chosen {
-                $call.unshift(QAST::Op.new(
-                    :op('atpos'),
-                    QAST::Var.new(
-                        :name('@!dispatchees'), :scope('attribute'),
-                        QAST::Op.new(
-                            :op('decont'),
-                            QAST::Var.new( :name($call.name), :scope('lexical') )
-                        ),
-                        QAST::WVal.new( :value($!symbols.find_lexical('Routine')) )
-                    ),
-                    QAST::IVal.new( :value($idx) )
-                ));
-                $call.name(NQPMu);
-                $call.op('call');
-                #say("# Compile-time resolved a call to " ~ $proto.name);
-                last;
-            }
-            $idx := $idx + 1;
-        }
-        $call := copy_returns($call, $chosen);
-#?endif
-#?if !jvm
         my $scopes := $!symbols.scopes_in($call.name);
         if $scopes == 0 || $scopes == 1 && nqp::can($proto, 'soft') && !$proto.soft {
             $call.op('callstatic');
@@ -4649,7 +4622,6 @@ class Perl6::Optimizer {
                 }
             }
         }
-#?endif
         $call
     }
 

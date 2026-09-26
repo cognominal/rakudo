@@ -5,15 +5,7 @@ class CompUnit::Repository::Unknown      { ... }
 class CompUnit::Repository::NQP { ... }
 class CompUnit::Repository::Perl5 { ... }
 
-#?if jvm
-class CompUnit::Repository::JavaRuntime { ... }
-class CompUnit::Repository::Java { ... }
-#?endif
 
-#?if js
-class CompUnit::Repository::FileSystemWithRecording { ... }
-class CompUnit::Repository::NodeJs { ... }
-#?endif
 
 class CompUnit::RepositoryRegistry {
     my $lock := Lock.new;
@@ -129,9 +121,6 @@ class CompUnit::RepositoryRegistry {
             $next-repo := CompUnit::Repository::AbsolutePath.new(
               :next-repo(CompUnit::Repository::NQP.new(
                 :next-repo(CompUnit::Repository::Perl5.new(
-#?if jvm
-                  :next-repo(CompUnit::Repository::JavaRuntime.new)
-#?endif
                 ))
               ))
             );
@@ -386,27 +375,12 @@ class CompUnit::RepositoryRegistry {
         }
     }
 
-#?if !js
     my constant $short-id2class = nqp::hash(
-#?endif
-#?if js
-    my $short-id2class := nqp::hash(
-#?endif
       'file',   CompUnit::Repository::FileSystem,
       'inst',   CompUnit::Repository::Installation,
       'ap',     CompUnit::Repository::AbsolutePath,
       'nqp',    CompUnit::Repository::NQP,
       'perl5',  CompUnit::Repository::Perl5,
-#?if js
-      'nodejs', CompUnit::Repository::NodeJs,
-#?endif
-#?if jvm
-      'javart', CompUnit::Repository::JavaRuntime,
-      'java',   CompUnit::Repository::Java,
-#?endif
-#?if js
-      'filerecording', CompUnit::Repository::FileSystemWithRecording,
-#?endif
     );
     my $sid-lock := Lock.new;
 

@@ -467,7 +467,7 @@ my role Blob[::T = uint8] does Positional[T] does Stringy is repr('VMArray') is 
         );
     }
 
-#?if moar
+#COMPILER::if moar
     # for simplicity's sake, these are not multis
     method read-int8(::?ROLE:D: int $offset, Endian $? --> int) is raw {
         nqp::readint(self,$offset,
@@ -553,8 +553,7 @@ my role Blob[::T = uint8] does Positional[T] does Stringy is repr('VMArray') is 
         nqp::readnum(self,$offset,
           nqp::bitor_i(nqp::const::BINARY_SIZE_64_BIT,$endian))
     }
-#?endif
-
+#COMPILER::endif
     method read-bits(::?ROLE:D \SELF: int $pos, Int:D $bits --> Int:D) {
         my $result := SELF.read-ubits($pos, $bits);
         $result > 1 +< ($bits - 1) - 1
@@ -671,7 +670,6 @@ my role Blob[::T = uint8] does Positional[T] does Stringy is repr('VMArray') is 
              )
           !! self!no-decode
     }
-#?if !jvm
     multi method decode(
       Blob:D: $encoding, Str :$replacement!, Bool:D :$strict = False
     ) {
@@ -695,16 +693,6 @@ my role Blob[::T = uint8] does Positional[T] does Stringy is repr('VMArray') is 
              )
           !! self!no-decode
     }
-#?endif
-#?if jvm
-    multi method decode(Blob:D: $encoding, Bool:D :$strict = False) {
-        nqp::p6box_s(
-          nqp::decode(self, Rakudo::Internals.NORMALIZE_ENCODING($encoding)))
-    }
-    multi method decode(Blob:D: $encoding, Str:D :$replacement!, Bool:D :$strict = False) {
-        NYI('decode-with-replacement').throw;
-    }
-#?endif
 
     my $char := nqp::list_s(
       '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'
@@ -1204,7 +1192,7 @@ my role Buf[::T = uint8] does Blob[T] is repr('VMArray') is array_type(T) {
         self
     }
 
-#?if moar
+#COMPILER::if moar
     # for simplicity's sake, these are not multis
     method write-int8(::?ROLE:
       int $offset, int8 $value, Endian $endian = NativeEndian
@@ -1313,8 +1301,7 @@ my role Buf[::T = uint8] does Blob[T] is repr('VMArray') is array_type(T) {
           nqp::bitor_i(nqp::const::BINARY_SIZE_64_BIT,$endian));
         $self
     }
-#?endif
-
+#COMPILER::endif
     sub POS-OOR(\SELF, int $pos --> Nil) is hidden-from-backtrace {
         die "Can only write from position 0..* in buffer{
             " '" ~ SELF.VAR.name ~ "'" if nqp::iscont(SELF)

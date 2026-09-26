@@ -8065,12 +8065,7 @@ Did you mean a call like '"
     }
 
     # The _i64 and _u64 are only used on backends that emulate int64/uint64
-#?if !js
     my @native_assign_ops := ['', 'assign_i', 'assign_n', 'assign_s', 'assign_i', 'assign_i', 'assign_i', 'assign_u', 'assign_u', 'assign_u', 'assign_u'];
-#?endif
-#?if js
-    my @native_assign_ops := ['', 'assign_i', 'assign_n', 'assign_s', 'assign_i64', 'assign_u64'];
-#?endif
     sub assign_op($/, $lhs_ast, $rhs_ast, :$initialize) {
         my $past;
         my $var_sigil;
@@ -9589,7 +9584,6 @@ Did you mean a call like '"
         # Consider using the VM binder on backends where it will work out
         # (e.g. we can get the same errors).
         my $need_full_binder := 1;
-#?if !jvm
         # If there are zero parameters, then we can trivially leave it to
         # the VM, with no extra work.
         if nqp::elems(@params) == 0 {
@@ -9628,7 +9622,6 @@ Did you mean a call like '"
                 $need_full_binder := 0;
             }
         }
-#?endif
 
         # If we need the full binder, invoke it; mark we do custom args
         # handling.
@@ -11509,16 +11502,9 @@ Did you mean a call like '"
             my @meta    := [];
             for $/[0] {
                 if $_<html_ref> {
-#?if !jvm
                     my $s := Perl6::Pod::str_from_entity(~$_);
                     $s ?? @contents.push($s) && @meta.push($world.add_string_constant(~$_).compile_time_value)
                        !! $/.worry("\"$_\" is not a valid HTML5 entity.");
-#?endif
-#?if jvm
-                    # Java 64K method limit can't compile Perl6::Pod::str_from_entity
-                    @contents.push(~$_);
-                    @meta.push($world.add_string_constant(~$_).compile_time_value);
-#?endif
                 } else {
                     my $n := $_<integer>
                           ?? $_<integer>.made

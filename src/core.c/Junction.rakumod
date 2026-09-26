@@ -438,12 +438,12 @@ my class Junction { # declared in BOOTSTRAP
               nqp::stmts(
                 nqp::while(
                   nqp::islt_i($i,$elems)
-#?if !moar
+#COMPILER::if !moar
                     && matcher.ACCEPTS(nqp::atpos($!eigenstates,$i)).not,
-#?endif
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
                     && nqp::dispatch('raku-smartmatch', nqp::atpos($!eigenstates, $i), matcher, nqp::unbox_i(-1)),
-#?endif
+#COMPILER::endif
                   ++$i
                 ),
                 nqp::islt_i($i,$elems)
@@ -453,12 +453,12 @@ my class Junction { # declared in BOOTSTRAP
                 nqp::stmts(
                   nqp::while(
                     nqp::islt_i($i,$elems)
-#?if !moar
+#COMPILER::if !moar
                       && matcher.ACCEPTS(nqp::atpos($!eigenstates,$i)).Bool,
-#?endif
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
                       && nqp::dispatch('raku-smartmatch', nqp::atpos($!eigenstates, $i), matcher, nqp::unbox_i(1)),
-#?endif
+#COMPILER::endif
                     ++$i
                   ),
                   nqp::iseq_i($i,$elems)
@@ -468,12 +468,12 @@ my class Junction { # declared in BOOTSTRAP
                   nqp::stmts(
                     nqp::while(
                       nqp::islt_i($i,$elems)
-#?if !moar
+#COMPILER::if !moar
                         && matcher.ACCEPTS(nqp::atpos($!eigenstates,$i)).not,
-#?endif
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
                         && nqp::dispatch('raku-smartmatch', nqp::atpos($!eigenstates, $i), matcher, nqp::unbox_i(-1)),
-#?endif
+#COMPILER::endif
                       ++$i
                     ),
                     nqp::iseq_i($i,$elems)
@@ -484,12 +484,12 @@ my class Junction { # declared in BOOTSTRAP
                     nqp::while(
                       nqp::islt_i(++$i,$elems) && nqp::isle_i($seen,1),
                       nqp::if(
-#?if !moar
+#COMPILER::if !moar
                         matcher.ACCEPTS(nqp::atpos($!eigenstates,$i)).Bool,
-#?endif
-#?if moar
+#COMPILER::endif
+#COMPILER::if moar
                         nqp::dispatch('raku-smartmatch', nqp::atpos($!eigenstates, $i), matcher, nqp::unbox_i(1)),
-#?endif
+#COMPILER::endif
                         ++$seen
                       )
                     ),

@@ -12,12 +12,12 @@ BEGIN {
     Metamodel::ParametricRoleHOW.HOW.reparent(Metamodel::ParametricRoleHOW, Any);
     Metamodel::SubsetHOW.HOW.reparent(Metamodel::SubsetHOW, Any);
     Metamodel::GrammarHOW.HOW.compose(Metamodel::GrammarHOW);
-#?if !moar
+#COMPILER::if !moar
     Metamodel::BaseDispatcher.HOW.reparent(Metamodel::BaseDispatcher, Any);
     Metamodel::MethodDispatcher.HOW.compose(Metamodel::MethodDispatcher);
     Metamodel::MultiDispatcher.HOW.compose(Metamodel::MultiDispatcher);
     Metamodel::WrapDispatcher.HOW.compose(Metamodel::WrapDispatcher);
-#?endif
+#COMPILER::endif
 }
 
 my constant CORE-SETTING-REV = do {
@@ -86,19 +86,14 @@ BEGIN {
 {
 
     # This thread pool scheduler will be the default one.
-#?if !js
     PROCESS::<$SCHEDULER> = ThreadPoolScheduler.new();
-#?endif
 
-#?if js
-    PROCESS::<$SCHEDULER> = JavaScriptScheduler.new();
-#?endif
 }
 
 # Required for use in the optimizer
 nqp::bindhllsym('Raku', 'Mu:U', Mu:U);
 
-#?if moar
+#COMPILER::if moar
 # Cannot be added in the Uni class, as we don't have native arrays
 # then yet, so it must be done here as an augment.
 augment class Uni {
@@ -120,8 +115,7 @@ augment class Uni {
         $uni
     }
 }
-#?endif
-
+#COMPILER::endif
 # Subs that are DEPRECATED are moved here so that the "is DEPRECATED" trait
 # can be applied without bootstrapping issues.
 

@@ -4,12 +4,12 @@ class CompUnit::PrecompilationStore::FileSystem
     has IO::Path:D $.prefix is built(:bind) is required;
 
     has IO::Handle $!lock;
-#?if moar
+#COMPILER::if moar
     has atomicint $!lock-count;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     has int $!lock-count;
-#?endif
+#COMPILER::endif
     has $!loaded;
     has $!dir-cache;
     has $!compiler-cache;
@@ -59,29 +59,29 @@ class CompUnit::PrecompilationStore::FileSystem
         $!update-lock.lock;
         $!lock := "$path.lock".IO.open(:create, :rw)
           unless $!lock;
-#?if moar
+#COMPILER::if moar
         $!lock.lock if ⚛$!lock-count == 0;
         ++⚛$!lock-count;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         $!lock.lock if $!lock-count++ == 0;
-#?endif
+#COMPILER::endif
     }
 
     method unlock() {
         LEAVE $!update-lock.unlock;
-#?if moar
+#COMPILER::if moar
         die "unlock when we're not locked!" if ⚛$!lock-count == 0;
 
         $!lock-count⚛-- if ⚛$!lock-count > 0;
         if $!lock && ⚛$!lock-count == 0 {
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         die "unlock when we're not locked!" if $!lock-count == 0;
 
         $!lock-count-- if $!lock-count > 0;
         if $!lock && $!lock-count == 0 {
-#?endif
+#COMPILER::endif
             $!lock.unlock;
             $!lock.close;
             $!lock := IO::Handle;

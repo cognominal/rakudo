@@ -9,47 +9,25 @@ class Kernel does Systemic {
     has Str $!arch     is built(:bind);
     has Int $!bits     is built(:bind);
 
-#?if !jvm
     has $!uname;
     method !uname {
         $!uname ?? $!uname !! ($!uname := nqp::uname())
     }
-#?endif
 
     method !uname-s(--> Str:D) {
-#?if !jvm
         nqp::atpos_s(self!uname, nqp::const::UNAME_SYSNAME)
-#?endif
-#?if jvm
-        try shell('uname -s', :out, :!err).out.slurp(:close).chomp;
-#?endif
     }
 
     method !uname-r(--> Str:D) {
-#?if !jvm
         nqp::atpos_s(self!uname, nqp::const::UNAME_RELEASE)
-#?endif
-#?if jvm
-        try shell('uname -r', :out, :!err).out.slurp(:close).chomp;
-#?endif
     }
 
     method !uname-v(--> Str:D) {
-#?if !jvm
         nqp::atpos_s(self!uname, nqp::const::UNAME_VERSION)
-#?endif
-#?if jvm
-        try shell('uname -v', :out, :!err).out.slurp(:close).chomp;
-#?endif
     }
 
     method !uname-m(--> Str:D) {
-#?if !jvm
         nqp::atpos_s(self!uname, nqp::const::UNAME_MACHINE)
-#?endif
-#?if jvm
-        try shell('uname -m', :out, :!err).out.slurp(:close).chomp;
-#?endif
     }
 
     method !uname-p(--> Str:D) {

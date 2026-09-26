@@ -8,26 +8,25 @@ my class Rakudo::Internals::HyperPipeline is implementation-detail {
     # cutoff are no longer processed. The joiners do not depend on it; they
     # terminate on the stop markers the batches themselves carry.
     my class StopStatus {
-#?if moar
+#COMPILER::if moar
         has atomicint $!cutoff = -1;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         has int $!cutoff = -1;
-#?endif
-
+#COMPILER::endif
         method cutoff() { $!cutoff }
 
         method stop(int $sequence --> Nil) {
-#?if moar
+#COMPILER::if moar
             loop {
                 my int $current = $!cutoff;
                 last if $current >= 0 && $current <= $sequence;
                 last if nqp::cas_i($!cutoff, $current, $sequence) == $current;
             }
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
             $!cutoff = $sequence if $!cutoff < 0 || $sequence < $!cutoff;
-#?endif
+#COMPILER::endif
         }
     }
 

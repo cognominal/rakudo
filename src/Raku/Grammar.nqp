@@ -6004,6 +6004,29 @@ Rakudo significantly on *every* run."
     # Anything else after `#` (whitespace, EOL, or a character that can't
     # start a `desigilname` either way, e.g. `#123`, `#----`) still reads as
     # an ordinary comment.
+
+    token comment:sym<#COMPILER> {
+        '#COMPILER::'
+        [
+            || 'if' \s+ $<condition>=[moar|'!moar'] \N*
+                 [
+                     || <?{ $<condition> eq '!moar' }> \n <skip-to-compiler-endif>
+                     || { $<condition> eq 'moar' }  # true condition, just consume the if line
+                 ]
+            || 'endif' \N*
+            || 'line' \s+ $<number>=[\d+] [\s+ $<filename>=[\N+]]? \N*
+        ]
+    }
+    
+    # Skip lines until #COMPILER::endif (used when a compile-time condition is false)
+    token skip-to-compiler-endif {
+        :dba('skip to #COMPILER::endif')
+        [
+            || \N* \n
+        ]*
+        '#COMPILER::endif' \N* [\n | $]
+    }
+
     token comment:sym<#> {
        '#' [ <?before \s> || <!before [ <.ident> | <[.!^:*?=~]> <.alpha> ] > ]
        {} \N*

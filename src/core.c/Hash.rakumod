@@ -525,9 +525,7 @@ multi sub circumfix:<{ }>(*@elems) { my % = @elems }
 sub circumfix:<:{ }>(*@elems) { Hash.^parameterize(Mu,Mu,Any).new(@elems) }
 
 proto sub hash(|) {*}
-#?if !jvm
 multi sub hash() is default { my %h }
-#?endif
 multi sub hash(*%h) { %h }
 multi sub hash(*@a, *%h) { my % = flat @a, %h }
 

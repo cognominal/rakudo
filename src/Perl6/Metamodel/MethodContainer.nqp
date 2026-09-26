@@ -24,9 +24,6 @@ role Perl6::Metamodel::MethodContainer {
         $name := nqp::decont_s($name);
 
         my str $attr_name :=
-#?if jvm
-          !nqp::isnull(Perl6::Metamodel::Configuration.submethod_type) &&
-#?endif
           nqp::istype($code, Perl6::Metamodel::Configuration.submethod_type)
             ?? '%!submethods'
             !! '%!methods';

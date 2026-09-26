@@ -60,15 +60,8 @@ my class Backtrace::Frame {
           || $!file.starts-with("NQP::")
           || $!file ~~ / [ "CORE." \w+ ".setting"
                            | "NQPCORE.setting"
-#?if jvm
-                           ## Redundant with next alternative, but keeps symmetry.
-                           | "BOOTSTRAP/v6" \w ".nqp" ]
-                         $ /
-#?endif
-#?if !jvm
                            | "BOOTSTRAP/v6" \w ]
                          ".{ Rakudo::Internals.PRECOMP-EXT }" $ /
-#?endif
           || $!file.ends-with(".nqp")
     }
 }
@@ -92,30 +85,14 @@ my class Backtrace {
         self
     }
     multi method new() {
-#?if !js
         nqp::create(self)!SET-SELF(
           nqp::backtrace(nqp::null),
           0)
-#?endif
-#?if js
-        try X::AdHoc.new(:payload("Died")).throw;
-        nqp::create(self)!SET-SELF(
-          nqp::backtrace(nqp::getattr(nqp::decont($!),Exception,'$!ex')),
-          1)
-#?endif
     }
     multi method new(Int:D $offset) {
-#?if !js
         nqp::create(self)!SET-SELF(
           nqp::backtrace(nqp::null),
           $offset)
-#?endif
-#?if js
-        try X::AdHoc.new(:payload("Died")).throw;
-        nqp::create(self)!SET-SELF(
-          nqp::backtrace(nqp::getattr(nqp::decont($!),Exception,'$!ex')),
-          1 + $offset)
-#?endif
     }
     multi method new(Exception:D $ex) {
         nqp::create(self)!SET-SELF(
@@ -177,12 +154,7 @@ my class Backtrace {
             my $name := nqp::p6box_s(nqp::getcodename($do));
 
             if ($file.starts-with('NQP::') && $file.ends-with('Compiler.nqp') && $name eq 'eval')
-#?if jvm
-                || $file.ends-with('NQPHLL.nqp')
-#?endif
-#?if !jvm
                 || $file.ends-with('NQPHLL.moarvm')
-#?endif
             {
                 # This could mean we're at the end of the interesting backtrace,
                 # or it could mean that we're in something like sprintf (which

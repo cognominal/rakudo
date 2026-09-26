@@ -229,12 +229,11 @@ my class IO::Path is Cool does IO {
         IO::Handle.new(:path(self), :no-dash-check).open(|c)
     }
 
-#?if moar
+#COMPILER::if moar
     method watch(IO::Path:D:) {
         IO::Notification.watch-path($.absolute);
     }
-#?endif
-
+#COMPILER::endif
     proto method absolute(|) {*}
     multi method absolute (IO::Path:D: --> Str:D) {
         nqp::ifnull(
@@ -269,13 +268,6 @@ my class IO::Path is Cool does IO {
         my str $resolved  = $volume;
         my $path         := $!SPEC.catpath: '', $vdb.dirname, $vdb.basename;
 
-#?if jvm
-        # Apparently JVM doesn't know how to decode to utf8-c8 yet
-        # so it's still afflicted by the bug that, say, "/\[x308]" in the path
-        # doesn't get recognized as a path separator
-        my $parts := nqp::split($sep, nqp::unbox_s($path));
-#?endif
-#?if !jvm
         # In this bit, we work with bytes, converting $sep (and assuming it's
         # 1-char long) in the path to nul bytes and then splitting the path
         # on nul bytes. This way, even if we get some weird paths like
@@ -293,7 +285,6 @@ my class IO::Path is Cool does IO {
               nqp::iseq_i(nqp::atpos_u($p, $i), $ord-sep),
               nqp::atposref_u($p, $i) = 0)),
           my $parts := nqp::split("\0", nqp::decode($p, 'utf8-c8')));
-#?endif
 
         while $parts {
             fail "Resolved path too deep!"
@@ -515,26 +506,26 @@ my class IO::Path is Cool does IO {
               :path($!os-path), :$uid, :$gid, :os-error(.Str) );
         }}
         my str $path = self.absolute;
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s($path), 0);
         die "Path does not exist" unless nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS);
-#?endif
+#COMPILER::endif
         $uid = $uid.defined
           ?? $uid.UInt
-#?if moar
+#COMPILER::if moar
           !! nqp::syscall("stat-flags", $stat, nqp::const::STAT_UID);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
           !! nqp::stat($path,nqp::const::STAT_UID);
-#?endif
+#COMPILER::endif
         $gid = $gid.defined
           ?? $gid.UInt
-#?if moar
+#COMPILER::if moar
           !! nqp::syscall("stat-flags", $stat, nqp::const::STAT_GID);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
           !! nqp::stat($path,nqp::const::STAT_GID);
-#?endif
+#COMPILER::endif
         nqp::chown($path, nqp::unbox_u($uid), nqp::unbox_u($gid))
     }
 
@@ -574,17 +565,17 @@ my class IO::Path is Cool does IO {
             fail X::IO::Mkdir.new(:path($!os-path), :$mode, os-error => .Str);
         }}
         my str $abspath = $.absolute;
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s($abspath), 0);
-#?endif
+#COMPILER::endif
         nqp::unless(
-#?if moar
+#COMPILER::if moar
           nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS) && nqp::syscall("stat-flags", $stat, nqp::const::STAT_ISDIR),
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
           nqp::stat($abspath,nqp::const::STAT_EXISTS)
             && nqp::stat($abspath,nqp::const::STAT_ISDIR),
-#?endif
+#COMPILER::endif
           nqp::mkdir($abspath,$mode)
         );
         self
@@ -759,15 +750,15 @@ my class IO::Path is Cool does IO {
             }
             # or appending to a new or existing, but zero-length, file
             else {
-#?if moar
+#COMPILER::if moar
                 my $stat := nqp::syscall("file-stat", nqp::decont_s($path), 0);
                 if nqp::not_i(nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)) ||
                    nqp::not_i(nqp::syscall("stat-flags", $stat, nqp::const::STAT_FILESIZE)) {
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
                 if nqp::not_i(nqp::stat($path,nqp::const::STAT_EXISTS)) ||
                    nqp::not_i(nqp::stat($path,nqp::const::STAT_FILESIZE)) {
-#?endif
+#COMPILER::endif
                     nqp::unshift_i($blob,254);
                     nqp::unshift_i($blob,255);
                 }
@@ -778,28 +769,28 @@ my class IO::Path is Cool does IO {
     }
 
     method user(IO::Path:D:) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_UID)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(my str $path = self.absolute)
           ?? nqp::stat($path, nqp::const::STAT_UID)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("user")
     }
 
     method group(IO::Path:D:) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_GID)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(my str $path = self.absolute)
           ?? nqp::stat($path, nqp::const::STAT_GID)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("group")
     }
 
@@ -863,197 +854,197 @@ my class IO::Path is Cool does IO {
         nqp::hllbool(Rakudo::Internals.FILETEST-E(self.absolute))
     }
     method d(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-flags", $stat, nqp::const::STAT_ISDIR))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-D($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("d")
     }
 
     method f(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-flags", $stat, nqp::const::STAT_ISREG))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-F($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("f")
     }
 
     method s(IO::Path:D: --> Int:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_FILESIZE)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? Rakudo::Internals.FILETEST-S($!os-path)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("s")
     }
 
     method l(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 1);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-flags", $stat, nqp::const::STAT_ISLNK))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-LE(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-L($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("l")
     }
 
     method r(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-is-readable", $stat))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-R($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("r")
     }
 
     method w(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-is-writable", $stat))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-W($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("w")
     }
 
     method rw(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-is-readable", $stat) && nqp::syscall("stat-is-writable", $stat))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-RW($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("rw")
     }
 
     method x(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-is-executable", $stat))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-X($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("x")
     }
 
     method rwx(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::hllbool(nqp::syscall("stat-is-readable", $stat) && nqp::syscall("stat-is-writable", $stat) && nqp::syscall("stat-is-executable", $stat))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-RWX($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("rwx")
     }
 
     method z(IO::Path:D: --> Bool:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_FILESIZE) == 0
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::hllbool(Rakudo::Internals.FILETEST-Z($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("z")
     }
 
     method created(IO::Path:D: --> Instant:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? Instant.from-posix-nanos(nqp::syscall("stat-time-nanos", $stat, nqp::const::STAT_CREATETIME))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? Instant.from-posix(Rakudo::Internals.FILETEST-CREATED($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("created")
     }
 
     method modified(IO::Path:D: --> Instant:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? Instant.from-posix-nanos(nqp::syscall("stat-time-nanos", $stat, nqp::const::STAT_MODIFYTIME))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? Instant.from-posix(Rakudo::Internals.FILETEST-MODIFIED($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("modified")
     }
 
     method accessed(IO::Path:D: --> Instant:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? Instant.from-posix-nanos(nqp::syscall("stat-time-nanos", $stat, nqp::const::STAT_ACCESSTIME))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? Instant.from-posix(Rakudo::Internals.FILETEST-ACCESSED($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("accessed")
     }
 
     method changed(IO::Path:D: --> Instant:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? Instant.from-posix-nanos(nqp::syscall("stat-time-nanos", $stat, nqp::const::STAT_CHANGETIME))
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? Instant.from-posix(Rakudo::Internals.FILETEST-CHANGED($!os-path))
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("changed")
     }
 
     method mode(IO::Path:D: --> IntStr:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         if nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS) {  # sets $!os-path
             my Int $mode := nqp::bitand_i(nqp::syscall("stat-flags", $stat, nqp::const::STAT_PLATFORM_MODE), 0o7777);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         if Rakudo::Internals.FILETEST-E(self.absolute) {  # sets $!os-path
             my Int $mode := Rakudo::Internals.FILETEST-MODE($!os-path);
-#?endif
+#COMPILER::endif
             my str $str   = nqp::base_I($mode,8);
             IntStr.new(
               $mode,
@@ -1066,41 +1057,41 @@ my class IO::Path is Cool does IO {
     }
 
     method inode(IO::Path:D: --> Int:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_PLATFORM_INODE)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::stat($!os-path, nqp::const::STAT_PLATFORM_INODE)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("inode")
     }
 
     method dev(IO::Path:D: --> Int:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_ISDEV)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::stat($!os-path, nqp::const::STAT_PLATFORM_DEV)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("dev")
     }
 
     method devtype(IO::Path:D: --> Int:D) {
-#?if moar
+#COMPILER::if moar
         my $stat := nqp::syscall("file-stat", nqp::decont_s(self.absolute), 0);
         nqp::syscall("stat-flags", $stat, nqp::const::STAT_EXISTS)
           ?? nqp::syscall("stat-flags", $stat, nqp::const::STAT_PLATFORM_DEV)
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         Rakudo::Internals.FILETEST-E(self.absolute)  # sets $!os-path
           ?? nqp::stat($!os-path, nqp::const::STAT_PLATFORM_DEVTYPE)
-#?endif
+#COMPILER::endif
           !! self!does-not-exist("devtype")
     }
 

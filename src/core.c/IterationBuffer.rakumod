@@ -81,8 +81,5 @@ my class IterationBuffer {
     }
 }
 
-#?if jvm
-nqp::p6setiterbuftype(IterationBuffer);
-#?endif
 
 # vim: expandtab shiftwidth=4

@@ -43,15 +43,10 @@ class CompUnit::Loader is repr('Uninstantiable') {
         # Switch file handle to binary mode before passing it off to the VM,
         # so we don't lose things hanging around in the decoder.
         $precompiled-handle.encoding(Nil);
-#?if jvm
-        nqp::loadbytecodebuffer($precompiled-handle.slurp(:bin, :close));
-#?endif
-#?if !jvm
         nqp::loadbytecodefh(
           nqp::getattr($precompiled-handle,IO::Handle,'$!PIO'),
           $precompiled-handle.path.Str
         );
-#?endif
         $compunit-handle
     }
 

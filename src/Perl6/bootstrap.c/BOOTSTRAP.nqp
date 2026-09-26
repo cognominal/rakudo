@@ -108,12 +108,6 @@ my stub NumMultidimRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
 my stub StrMultidimRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
 my stub BOOTLanguageRevision metaclass Perl6::Metamodel::ClassHOW { ... };
 
-#?if js
-my stub Int64LexRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
-my stub Int64AttrRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
-my stub Int64PosRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
-my stub Int64MultidimRef metaclass Perl6::Metamodel::NativeRefHOW { ... };
-#?endif
 
 #- NativeInstantiation ---------------------------------------------------------
 # Role bodies compile against generic types with object access ops and boxed
@@ -169,7 +163,6 @@ nqp::bindhllsym('Raku', 'NativeInstantiation', NativeInstantiation);
 # so we exclude everything else.
 my class Binder {
 
-#?if !jvm
 
     my $autothreader;
     my $Positional;
@@ -1321,7 +1314,6 @@ my class Binder {
           ?? nqp::null
           !! $type
     }
-#?endif
 
     my int $TRIAL_BIND_NOT_SURE :=  0;   # Plausible, need to check at runtime.
     my int $TRIAL_BIND_OK       :=  1;   # Bind will always work out.
@@ -2307,12 +2299,7 @@ BEGIN {
         }
 
         nqp::bindattr($ins, Attribute, '$!container_initializer',
-#?if !jvm
           nqp::p6capturelexwhere($ci.clone)
-#?endif
-#?if jvm
-          $ci.clone
-#?endif
         ) if nqp::isconcrete($ci);
 
         my $cd_ins := $cd;
@@ -2376,12 +2363,7 @@ BEGIN {
             );
         }
         nqp::bindattr($ins, Attribute, '$!build_closure',
-#?if !jvm
           nqp::p6capturelexwhere($bc.clone)
-#?endif
-#?if jvm
-          $bc.clone
-#?endif
         ) if nqp::defined($bc);
 
         $ins
@@ -2594,12 +2576,6 @@ BEGIN {
     setup_native_ref_type(NumMultidimRef,   num, 'multidim');
     setup_native_ref_type(StrMultidimRef,   str, 'multidim');
 
-#?if js
-    setup_native_ref_type(Int64LexRef,      int64, 'lexical'   );
-    setup_native_ref_type(Int64AttrRef,     int64, 'attribute' );
-    setup_native_ref_type(Int64PosRef,      int64, 'positional');
-    setup_native_ref_type(Int64MultidimRef, int64, 'multidim'  );
-#?endif
 
 #- Proxy -----------------------------------------------------------------------
 # class Proxy is Any {
@@ -3182,10 +3158,8 @@ BEGIN {
               nqp::bindattr($cloned, Code, '$!do', $cldo),
               $cloned
             );
-#?if !jvm
             my $phasers := nqp::getattr($cloned, Block, '$!phasers');
             $self."!clone_phasers"($cloned, $phasers) if nqp::ishash($phasers);
-#?endif
 
             my $compstuff := nqp::getattr($cloned, Code, '@!compstuff');
             nqp::atpos($compstuff, 2)($do, $cloned)
@@ -3204,7 +3178,6 @@ BEGIN {
 
     Block.HOW.add_method(Block, '!clone_phasers',
       nqp::getstaticcode(sub ($self, $cloned, $phasers) {
-#?if !jvm
 
         # Helper sub for phasers that require innerlex capturing
         my $cl_phasers := nqp::null;
@@ -3257,12 +3230,10 @@ BEGIN {
 
         nqp::bindattr($cloned, Block, '$!phasers', $cl_phasers)
           unless nqp::isnull($cl_phasers);
-#?endif
     }));
 
     Block.HOW.add_method(Block, '!capture_phasers', nqp::getstaticcode(sub ($self) {
             $self  := nqp::decont($self);
-#?if !jvm
             my $phasers := nqp::getattr($self, Block, '$!phasers');
             if nqp::ishash($phasers) {
 
@@ -3282,7 +3253,6 @@ BEGIN {
                 capture_phaser('QUIT')  if nqp::existskey($phasers, 'QUIT' );
                 capture_phaser('CLOSE') if nqp::existskey($phasers, 'CLOSE');
             }
-#?endif
             $self
     }));
 
@@ -4241,7 +4211,6 @@ BEGIN {
                             # Assume a native value unless proven otherwise
                             my int $primish := 1;
 
-#?if !jvm
                             # Set type to fall back to if no native involved
                             my $type := $arg.WHAT;
 
@@ -4269,30 +4238,6 @@ BEGIN {
                                     }
                                 }
                             }
-#?endif
-#?if jvm
-                            my $param := $arg;
-                            if $got_prim == nqp::const::BIND_VAL_OBJ {
-                                if    nqp::iscont_i($param) { $param := Int; }
-                                elsif nqp::iscont_u($param) { $param := Int; }
-                                elsif nqp::iscont_n($param) { $param := Num; }
-                                elsif nqp::iscont_s($param) { $param := Str; }
-                                else { $primish := 0; $param := nqp::hllizefor($param, 'Raku'); }
-                            }
-                            else {
-                                $param := $got_prim == nqp::const::BIND_VAL_INT ?? Int !!
-                                          $got_prim == nqp::const::BIND_VAL_UINT ?? Int !!
-                                          $got_prim == nqp::const::BIND_VAL_NUM ?? Num !!
-                                                                        Str;
-                            }
-                            if nqp::eqaddr($type_obj, Mu) || nqp::istype($param, $type_obj) {
-                                if $i == 0 && nqp::existskey($candidate, 'exact_invocant') {
-                                    unless $param.WHAT =:= $type_obj {
-                                        $no_mismatch := 0;
-                                    }
-                                }
-                            }
-#?endif
 
                             # Positional param needs PositionalBindFailover
                             elsif nqp::eqaddr(
@@ -5208,13 +5153,7 @@ BEGIN {
                 $result
             }
             else {
-#?if js
-                # HACK js backend bug workaround
-                nqp::list
-#?endif
-#?if !js
                 @EMPTY-LIST
-#?endif
             }
         }
 
@@ -5237,13 +5176,7 @@ BEGIN {
                 $result
             }
             else {
-#?if js
-                # HACK js backend bug workaround
-                nqp::hash
-#?endif
-#?if !js
                 %EMPTY-HASH
-#?endif
             }
         }
 
@@ -5739,12 +5672,6 @@ BEGIN {
     Perl6::Metamodel::NativeRefHOW.add_stash(UIntMultidimRef);
     Perl6::Metamodel::NativeRefHOW.add_stash(NumMultidimRef);
     Perl6::Metamodel::NativeRefHOW.add_stash(StrMultidimRef);
-#?if js
-    Perl6::Metamodel::NativeRefHOW.add_stash(Int64LexRef);
-    Perl6::Metamodel::NativeRefHOW.add_stash(Int64AttrRef);
-    Perl6::Metamodel::NativeRefHOW.add_stash(Int64PosRef);
-    Perl6::Metamodel::NativeRefHOW.add_stash(Int64MultidimRef);
-#?endif
     Perl6::Metamodel::ClassHOW.add_stash(List);
     Perl6::Metamodel::ClassHOW.add_stash(Slip);
     Perl6::Metamodel::ClassHOW.add_stash(Array);
@@ -5887,11 +5814,6 @@ BEGIN {
     EXPORT::DEFAULT.WHO<UIntPosRef> := UIntPosRef;
     EXPORT::DEFAULT.WHO<NumPosRef>  := NumPosRef;
     EXPORT::DEFAULT.WHO<StrPosRef>  := StrPosRef;
-#?if js
-    EXPORT::DEFAULT.WHO<Int64LexRef>  := Int64LexRef;
-    EXPORT::DEFAULT.WHO<Int64AttrRef> := Int64AttrRef;
-    EXPORT::DEFAULT.WHO<Int64PosRef>  := Int64PosRef;
-#?endif
     EXPORT::DEFAULT.WHO<Proxy>      := Proxy;
     EXPORT::DEFAULT.WHO<Grammar>    := Grammar;
     EXPORT::DEFAULT.WHO<Junction>   := Junction;
@@ -5975,25 +5897,15 @@ nqp::sethllconfig('Raku', nqp::hash(
                             my str $name := nqp::atpos($phaser, 0);
                             if ($name eq 'KEEP' && $valid)
                               || ($name eq 'UNDO' && !$valid) {
-#?if jvm
-                                nqp::atpos($phaser, 1)();
-#?endif
-#?if !jvm
                                 nqp::p6capturelexwhere(
                                   nqp::atpos($phaser, 1).clone
                                 )();
-#?endif
                             }
                         }
 
                         # an ordinary LEAVE phaser
                         else {
-#?if jvm
-                            $phaser();
-#?endif
-#?if !jvm
                             nqp::p6capturelexwhere($phaser.clone)();
-#?endif
                         }
                         ++$i;
                     }
@@ -6006,14 +5918,9 @@ nqp::sethllconfig('Raku', nqp::hash(
                     my int $m := nqp::elems(@posts);
                     my int $i;
                     while $i < $m {
-#?if jvm
-                        nqp::atpos(@posts, $i)($value);
-#?endif
-#?if !jvm
                         nqp::p6capturelexwhere(
                           nqp::atpos(@posts, $i).clone
                         )($value);
-#?endif
                         ++$i;
                     }
                 }
@@ -6032,16 +5939,10 @@ nqp::sethllconfig('Raku', nqp::hash(
             # only have a lone LEAVE phaser, so no frills needed
             # don't bother to CATCH, there can only be one exception
             else {
-#?if jvm
-                $phasers();
-#?endif
-#?if !jvm
                 nqp::p6capturelexwhere($phasers.clone)();
-#?endif
             }
         }
     },
-#?if !jvm
 
     'bind_error', -> $capture {
 
@@ -6117,7 +6018,6 @@ nqp::sethllconfig('Raku', nqp::hash(
                )
              );
     },
-#?endif
 
     'lexical_handler_not_found_error', -> $cat, $out_of_dyn_scope {
         if $cat == nqp::const::CONTROL_RETURN {
@@ -6175,12 +6075,6 @@ nqp::sethllconfig('Raku', nqp::hash(
     'uint_multidim_ref', UIntMultidimRef,
     'num_multidim_ref',  NumMultidimRef,
     'str_multidim_ref',  StrMultidimRef,
-#?if js
-    'int64_lex_ref',      Int64LexRef,
-    'int64_attr_ref',     Int64AttrRef,
-    'int64_pos_ref',      Int64PosRef,
-    'int64_multidim_ref', Int64MultidimRef,
-#?endif
 
 #?if moar
     'call_dispatcher',         'raku-call',
@@ -6412,13 +6306,6 @@ nqp::bindhllsym('Raku', 'default_cont_spec',
 nqp::bindhllsym('Raku', 'Capture', Capture);
 nqp::bindhllsym('Raku', 'Version', Version);
 
-#?if jvm
-# On JVM, set up JVM interop bits.
-nqp::gethllsym('Raku', 'JavaModuleLoader').set_interop_loader(-> {
-    nqp::jvmrakudointerop()
-});
-Perl6::Metamodel::JavaHOW.pretend_to_be([Any, Mu]);
-#?endif
 
 # Make QAST::Regex and QRegex available to early setting where module loading
 # does not yet work.

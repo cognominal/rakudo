@@ -208,13 +208,12 @@ my class ThreadPoolScheduler does Scheduler {
 
         # Completed is the number of tasks completed since the last time the
         # supervisor checked in.
-#?if moar
+#COMPILER::if moar
         has atomicint $.completed;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
         has int $.completed;
-#?endif
-
+#COMPILER::endif
         # Total number of tasks completed since creation.
         has int $.total;
 
@@ -226,14 +225,14 @@ my class ThreadPoolScheduler does Scheduler {
 
         # Resets the completed to zero and updates the total.
         method take-completed() {
-#?if moar
+#COMPILER::if moar
             my atomicint $taken;
             cas $!completed, -> atomicint $current { $taken = $current; 0 }
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
             my int $taken = $!completed;
             $!completed = 0;
-#?endif
+#COMPILER::endif
             if $taken == 0 {
                 ++$!times-nothing-completed;
             }
@@ -273,12 +272,12 @@ my class ThreadPoolScheduler does Scheduler {
                 }, Code, '$!do'));
             }
             $!working = 0;
-#?if moar
+#COMPILER::if moar
             ++⚛$!completed;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
             ++$!completed;
-#?endif
+#COMPILER::endif
             ++$!total;
         }
     }
@@ -317,13 +316,12 @@ my class ThreadPoolScheduler does Scheduler {
     }
 
     # Initial and maximum threads allowed.
-#?if moar
+#COMPILER::if moar
     has uint $!max_threads;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     has Int $!max_threads;
-#?endif
-
+#COMPILER::endif
     # All of the worker and queue state below is guarded by this lock.
     has Lock $!state-lock;
 

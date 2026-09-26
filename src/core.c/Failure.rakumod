@@ -1,22 +1,12 @@
 my class Failure is Nil {
     has $.exception;
     has $.backtrace;
-#?if !jvm
     has int $!handled;
-#?endif
-#?if jvm
-    has Int $!handled;   # alas, native int breaks on the JVM
-#?endif
 
     method !SET-SELF(\exception) {
         $!exception := exception;
         $!backtrace := exception.backtrace || Backtrace.new(
-#?if !js
             4
-#?endif
-#?if js
-            5
-#?endif
         );
         exception.reset-backtrace;
         self
@@ -76,12 +66,7 @@ my class Failure is Nil {
     method handled() is rw {
         Proxy.new(
           FETCH => {
-#?if !jvm
               nqp::hllbool($!handled)
-#?endif
-#?if jvm
-              $!handled.Bool
-#?endif
           },
           STORE => -> $, $value { $!handled = $value.Bool.Numeric }
        )

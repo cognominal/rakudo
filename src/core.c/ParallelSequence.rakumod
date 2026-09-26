@@ -2,26 +2,24 @@
 my role ParallelSequence[::Joiner] does Iterable does Sequence {
     has HyperConfiguration $.configuration;
     has Rakudo::Internals::HyperWorkStage $!work-stage-head;
-#?if moar
+#COMPILER::if moar
     has atomicint $!has-iterator;
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
     has $!has-iterator;
-#?endif
-
-
+#COMPILER::endif
     submethod BUILD(:$!configuration!, :$!work-stage-head!) {
         $!has-iterator = 0;
     }
 
     method iterator(::?CLASS:D: --> Iterator) {
         X::Seq::Consumed.new(:kind(::?CLASS)).throw
-#?if moar
+#COMPILER::if moar
             if nqp::cas_i($!has-iterator, 0, 1);
-#?endif
-#?if !moar
+#COMPILER::endif
+#COMPILER::if !moar
             if nqp::cas($!has-iterator, 0, 1);
-#?endif
+#COMPILER::endif
         my $joiner := Joiner.new:
                         source => $!work-stage-head;
         Rakudo::Internals::HyperPipeline.start($joiner, $!configuration);
