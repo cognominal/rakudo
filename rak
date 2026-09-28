@@ -1,20 +1,9 @@
 #!/bin/bash
 # rak — invoke rakudo with .rak-mode semantics by default.
-#
-# Running `rak` without arguments starts an interactive REPL where all
-# rak features are active (new sigils, dotty subscript sugar, redirection
-# syntax, naked strings). With a file argument, the file extension
-# determines which semantics apply: .rak activates rak features; .raku,
-# .rakumod, .pm6, .nqp keep traditional Raku.
+# Uses RakuAST frontend + RAKU_RAK_MODE to enable all rak features
+# (new sigils, dotty subscript sugar, redirection, naked strings).
 #
 # Usage: rak [-- raku-options] [file.rak] [args...]
-#
-# Environment variable RAKU_RAK_MODE=1 enables rak semantics for sources
-# that have no file extension (REPL, -e, STDIN). Set automatically here.
-# Physical .rak files always get rak semantics from their extension;
-# physical .raku/.rakumod files always get traditional semantics.
-#
-# Requires RAKUDO_RAKUAST=1 (targets only the RakuAST frontend).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RAKUDO_RAKUAST=1
