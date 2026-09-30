@@ -199,7 +199,7 @@ sub p6ize_recursive($x) {
 #-------------------------------------------------------------------------------
 # Role for all Action classes associated with Raku grammar slangs
 
-role Raku::CommonActions {
+role Rak::CommonActions {
     # Some AST nodes need symbol resolution or attachment of position
     # information as we go. This factors out that process and attaches
     # the AST to the match object.
@@ -375,7 +375,7 @@ role Raku::CommonActions {
 #-------------------------------------------------------------------------------
 # The actions associated with the base Raku grammar
 
-class Raku::Actions is HLL::Actions does Raku::CommonActions {
+class Rak::Actions is HLL::Actions does Rak::CommonActions {
     method TRIMS-ORIGINS() { 1 }
     method  OperatorProperties() { $OperatorProperties }
 
@@ -425,31 +425,7 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         # Be ready to report locations in the source.
         $*ORIGIN-SOURCE := Nodify('Origin::Source').new(:orig($/.target()));
 
-        # Set the .rak extension gate: source files ending in .rak get
-        # rak semantics (new sigils, dotty sugar, redirection, naked strings,
-        # etc.). Every other extension (.raku, .rakumod, .pm6, .nqp, or
-        # -e/STDIN with no filename) keeps today's behavior exactly, unless
-        # RAKU_RAK_MODE=1 is set (REPL use via the `rak` executable).
-        my str $source-name := %*COMPILING<%?OPTIONS><source-name> // '';
-        my int $name-len := nqp::chars($source-name);
-        my int $is-real-file := $name-len
-          && !nqp::eqat($source-name, '-', 0);
-
-        my int $is-rak := $name-len >= 4
-          && nqp::eqat($source-name, '.rak', $name-len - 4);
-
-        if $is-rak {
-            $*RAK-SEMANTICS := 1;
-        }
-        elsif $is-real-file {
-            $*RAK-SEMANTICS := 0;
-        }
-        elsif nqp::getenvhash<RAKU_RAK_MODE> {
-            $*RAK-SEMANTICS := 1;
-        }
-        else {
-            $*RAK-SEMANTICS := 0;
-        }
+                $*RAK-SEMANTICS := 1;
 
         # Set up the base resolver
         my %OPTIONS       := %*OPTIONS;
@@ -1091,7 +1067,7 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
               if $<statement-mod-loop>;
 
             # Handle output redirection (.rak syntax)
-            if $<statement-mod-redir> && $*RAK-SEMANTICS {
+            if $<statement-mod-redir> {
                 my $filename-ast := $<statement-mod-redir>.ast;
                 my $mode := ~$<statement-mod-redir><op> eq '>>' ?? 'a' !! 'w';
                 my $open-args := Nodify('ArgList').new(
@@ -1140,7 +1116,7 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
         }
 
         # Handle input redirection (.rak syntax) — NYI, stub
-        elsif $<redir-filename> && !$<EXPR> && $*RAK-SEMANTICS {
+        elsif $<redir-filename> && !$<EXPR> {
             $/.panic('Input redirection with < is not yet implemented');
             $statement := Nodify('Statement::Empty').new;
         }
@@ -5474,7 +5450,7 @@ class Raku::Actions is HLL::Actions does Raku::CommonActions {
     }
 }
 
-class Raku::QActions is HLL::Actions does Raku::CommonActions {
+class Rak::QActions is HLL::Actions does Rak::CommonActions {
     # This overrides NQP during the deprecation period for Unicode 1 names
     # not covered by Alias Names
     method charname-panic($/) { $/.panic("Unrecognized character name [$/]") }
@@ -5649,7 +5625,7 @@ Please use $worry.";
 
 #-------------------------------------------------------------------------------
 
-class Raku::RegexActions is HLL::Actions does Raku::CommonActions {
+class Rak::RegexActions is HLL::Actions does Rak::CommonActions {
 
     method nibbler($/) {
         self.reject-modifier-only($<termseq><termaltseq>, 0);
@@ -6323,7 +6299,7 @@ class Raku::RegexActions is HLL::Actions does Raku::CommonActions {
     }
 }
 
-class Raku::P5RegexActions is HLL::Actions does Raku::CommonActions {
+class Rak::P5RegexActions is HLL::Actions does Rak::CommonActions {
     method nibbler($/) {
         self.attach: $/, Nodify('Regex::Assertion::Fail').new;
     }

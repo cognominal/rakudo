@@ -1,0 +1,87 @@
+use Test;
+
+plan 11;
+
+# ---------------------------------------------------------------------------
+# Append redirection with `>>` — the operator must directly touch the
+# filename (no space after >>). Opens the file in append mode (`:a`)
+# so content is added to the end rather than overwriting.
+# ---------------------------------------------------------------------------
+
+# 1. Append to a new file creates it
+{
+    say 'first line' >>append_new.txt;
+    ok 'append_new.txt'->IO->e, '1: file created by append redirection';
+    is 'append_new.txt'->IO->slurp->trim, 'first line',
+        '1: content written via append';
+    'append_new.txt'->IO->unlink;
+}
+
+# 2. Append to an existing file adds content (say adds a newline too)
+{
+    'append_existing.txt'->IO->spurt('original');
+    say 'appended' >>append_existing.txt;
+    my $content = 'append_existing.txt'->IO->slurp;
+    # spurt('original') writes "original". say writes "appended\n".
+    # File content = "originalappended\n" — one line, content appended.
+    ok $content ~~ / original .* appended /, '2: content appended to existing';
+    'append_existing.txt'->IO->unlink;
+}
+
+# 3. Append with quoted string filename
+{
+    'append_quoted.txt'->IO->spurt('initial');
+    say 'added' >>'append_quoted.txt';
+    my $content = 'append_quoted.txt'->IO->slurp;
+    ok $content ~~ / initial .* added /, '3: append with quoted filename works';
+    'append_quoted.txt'->IO->unlink;
+}
+
+# 4. Append with scalar variable filename
+{
+    my $f = 'append_var.txt';
+    'append_var.txt'->IO->spurt('base');
+    say 'extra' >>$f;
+    my $content = $f->IO->slurp;
+    ok $content ~~ / base .* extra /, '4: append with scalar variable filename works';
+    $f->IO->unlink;
+}
+
+# 5. `>` overwrites, `>>` appends — they are distinct
+{
+    'over_vs_append.txt'->IO->spurt('original');
+    say 'overwrite' >'over_vs_append.txt';
+    is 'over_vs_append.txt'->IO->slurp->trim, 'overwrite',
+        '5: > overwrites existing content';
+    'over_vs_append.txt'->IO->unlink;
+}
+
+# 6. `>>` with space after it is NOT redirection (it's the deprecated
+#    shift operator or hyperoperator) — must not create a file.
+{
+    try { EVAL 'say "data" >> unwanted_append.txt;' }
+    nok 'unwanted_append.txt'->IO->e,
+        '6: >> with space after it does not redirect';
+    'unwanted_append.txt'->IO.unlink if 'unwanted_append.txt'->IO.e;
+}
+
+# 7. Naked string content + append redirection
+{
+    say some_content >>append_naked.txt;
+    is 'append_naked.txt'->IO->slurp->trim, 'some_content',
+        '7: naked string content via >> works';
+    'append_naked.txt'->IO->unlink;
+}
+
+# 8. Multiple appends accumulate (each adds a line)
+{
+    say line_a >>append_multi.txt;
+    say line_b >>append_multi.txt;
+    my @lines = 'append_multi.txt'->IO->lines;
+    is @lines->elems, 2, '8: two appends produce two lines';
+    is @lines[0], 'line_a', '8: first appended line';
+    is @lines[1], 'line_b', '8: second appended line';
+    'append_multi.txt'->IO->unlink;
+}
+
+done-testing();

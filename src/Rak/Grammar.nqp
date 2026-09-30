@@ -42,7 +42,7 @@ my role stop[$stop] {
 #-------------------------------------------------------------------------------
 # Functionality common to all Raku grammars
 
-role Raku::Common {
+role Rak::Common {
 
     token O(*%spec) {
         <.panic: "Internal error: O() should not be used anymore">
@@ -940,7 +940,7 @@ role Raku::Common {
 #-------------------------------------------------------------------------------
 # Compilation unit, language version and other entry point bits
 
-grammar Raku::Grammar is HLL::Grammar does Raku::Common {
+grammar Rak::Grammar is HLL::Grammar does Rak::Common {
 
 #-------------------------------------------------------------------------------
 # Translatable tokens
@@ -1202,9 +1202,9 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     # takes its grammar from here.
     method standard-slangs() {
         nqp::hash(
-          'Quote',   [Raku::QGrammar,       Raku::QActions],
-          'Regex',   [Raku::RegexGrammar,   Raku::RegexActions],
-          'P5Regex', [Raku::P5RegexGrammar, Raku::P5RegexActions],
+          'Quote',   [Raku::QGrammar,       Rak::QActions],
+          'Regex',   [Raku::RegexGrammar,   Rak::RegexActions],
+          'P5Regex', [Raku::P5RegexGrammar, Rak::P5RegexActions],
         )
     }
 
@@ -1358,7 +1358,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         :my $*R;               # current RakuAST::Resolver::xxx object
         :my $*LANGUAGE-REVISION;  # language revision of this compilation unit
         # Set from this file's extension in comp-unit-prologue (1 for .rak, 0 otherwise).
-        :my $*RAK-SEMANTICS;
+        :my $*RAK-SEMANTICS := 1;
         :my $*LITERALS;        # current RakuAST::LiteralBuilder object
         :my &*DD;              # debug helper to dd()
         {
@@ -1468,11 +1468,11 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
         [
           | <label> <statement>
           | <statement-control>
-          | <?{ $*RAK-SEMANTICS }> '<' <?{ !self.after-ws($/) }> <redir-filename> <.ws> <statement>
+          | '<' <?{ !self.after-ws($/) }> <redir-filename> <.ws> <statement>
           | <EXPR>
             :dba('statement end')
             [
-              || <?{ $*RAK-SEMANTICS }> <statement-mod-redir>
+              || <statement-mod-redir>
               || <?MARKED('end-statement')>
               || :dba('statement modifier')
                  <.ws>
@@ -2481,8 +2481,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     # <<foo>>
     token infix-circumfix-meta-operator:sym«<< >>» {
         $<opening>=[ '<<' | '>>' ]
-        <?{ !$*RAK-SEMANTICS
-            || ~$<opening> ne '>>'
+        <?{ ~$<opening> ne '>>'
             || $/.pos() >= nqp::chars(self.target())
             || !(nqp::ordat(self.target(), $/.pos()) >= 97
                   && nqp::ordat(self.target(), $/.pos()) <= 122)
@@ -2547,7 +2546,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # `||` branch below and its ordinary <OPER=dotty> method-call
           # path, unaffected. False outside `.rak` mode, so this never
           # matches at all there.
-          || <?{ $*RAK-SEMANTICS }> '.' <OPER=dotty-name-sugar>
+          || '.' <OPER=dotty-name-sugar>
 
           || [
           | <OPER=postfix>
@@ -2597,8 +2596,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token postfix-prefix-meta-operator:sym<»> {
         [ <sym> | $<sym> = '>>' ]
         [ <!{ $*QSIGIL }> || <![(]> ]
-        <?{ !$*RAK-SEMANTICS
-            || $/.pos() >= nqp::chars(self.target())
+        <?{ $/.pos() >= nqp::chars(self.target())
             || !(nqp::ordat(self.target(), $/.pos()) >= 97
                   && nqp::ordat(self.target(), $/.pos()) <= 122)
             && !(nqp::ordat(self.target(), $/.pos()) >= 65
@@ -2859,7 +2857,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
           # shape, so `->[`/`->{`/`->(` fall through to the existing
           # obsolete-syntax branches below even in `.rak` mode (deliberately
           # left erroring, per the spec).
-          | <?{ $*RAK-SEMANTICS }>
+          |
             <.unspace>?
             <methodop(Mu)>
 
@@ -3138,8 +3136,8 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
     token infix:sym«≤»      { <sym> }
     token infix:sym«>=»     { <sym> }
     token infix:sym«≥»      { <sym> }
-    token infix:sym«<»      { <sym> <?{ !$*RAK-SEMANTICS || $/.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), $/.pos()) == 32 }> }
-    token infix:sym«>»      { <sym> <?{ !$*RAK-SEMANTICS || $/.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), $/.pos()) == 32 }> }
+    token infix:sym«<»      { <sym> <?{ $/.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), $/.pos()) == 32 }> }
+    token infix:sym«>»      { <sym> <?{ $/.pos() >= nqp::chars(self.target()) || nqp::ordat(self.target(), $/.pos()) == 32 }> }
     token infix:sym«=:=»    { <sym> }
     token infix:sym<===>    { <sym> }
     token infix:sym<⩶>      { <sym> }
@@ -3473,11 +3471,7 @@ grammar Raku::Grammar is HLL::Grammar does Raku::Common {
 
     token term:sym<colonpair> { :my $*COLONPAIR-AS-TERM := 1; <colonpair> }
 
-    # In rak mode ($*RAK-SEMANTICS), a bare identifier is a naked string
-    # literal (not a function call), unless it looks like a number or is a
-    # known name (a declared lexical / setting routine like say or print).
     token term:sym<rak-string> {
-        <?{ $*RAK-SEMANTICS }>
         <identifier>
         <!before '('>
         <?{ !$*R.is-identifier-known(~$<identifier>) }>
@@ -6425,7 +6419,7 @@ Rakudo significantly on *every* run."
 # used for a specific set of quote language adverbs.  Generally, each adverb
 # has an "on" version (with postfix "1") and an "off" version (with postfix
 # "0").
-grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
+grammar Rak::QGrammar is HLL::Grammar does Rak::Common {
 
 #-------------------------------------------------------------------------------
 # Escape / backslash sequences
@@ -6888,7 +6882,7 @@ grammar Raku::QGrammar is HLL::Grammar does Raku::Common {
 # Grammar to parse Raku regexes, mostly consisting of overrides allowing
 # HLL actions on what is an NQP grammar
 
-grammar Raku::RegexGrammar is QRegex::P6Regex::Grammar does Raku::Common {
+grammar Rak::RegexGrammar is QRegex::P6Regex::Grammar does Rak::Common {
     method throw_unrecognized_metachar ($metachar) {
         self.typed-sorry: 'X::Syntax::Regex::UnrecognizedMetachar', :$metachar;
     }
@@ -7089,7 +7083,7 @@ grammar Raku::RegexGrammar is QRegex::P6Regex::Grammar does Raku::Common {
 #-------------------------------------------------------------------------------
 # Grammar to parse PCRE like regexes
 
-grammar Raku::P5RegexGrammar is QRegex::P5Regex::Grammar does Raku::Common {
+grammar Rak::P5RegexGrammar is QRegex::P5Regex::Grammar does Rak::Common {
     token rxstopper { <stopper> }
 
     token p5metachar:sym<(?{ })> {
